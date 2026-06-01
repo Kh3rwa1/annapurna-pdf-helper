@@ -1,19 +1,34 @@
-import { ChangeEvent, useMemo, useState } from 'react';
+import { ChangeEvent, useEffect, useMemo, useState } from 'react';
 import {
   AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Briefcase,
   Camera,
+  Check,
   CheckCircle2,
   Download,
   FileCheck2,
   FileText,
+  GraduationCap,
+  HeartHandshake,
+  Home,
   Loader2,
+  Plus,
   RefreshCw,
   ScanText,
-  ShieldCheck
+  ShieldCheck,
+  User,
+  Users,
+  Volume2,
+  VolumeX,
+  type LucideIcon
 } from 'lucide-react';
 import { FIELD_NAMES, createEmptyUserData, type FieldName, type UserData } from './data/fieldNames';
+import { t, type LocaleKey } from './lib/i18n';
 import { createFilledPdf } from './lib/pdfFill';
 import { parseOcrText, runOcrForDocument } from './lib/ocr';
+import { speakPrompt, stopSpeaking } from './lib/voice';
 import type { AppStep, OcrDocument, OcrParseResult, OcrTargetPrefix } from './types';
 
 const steps: AppStep[] = ['scan', 'ocr', 'review', 'fill', 'preview', 'download'];
@@ -88,7 +103,132 @@ const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
   { value: 'member5', label: 'Member 5' }
 ];
 
+type UiMode = 'agent' | 'assist';
+
+type AssistOwner = 'hof' | `member${number}`;
+type MemberFieldSuffix = (typeof memberFields)[number];
+type AssistInputMode = 'text' | 'numeric' | 'tel';
+
+type AssistChoice = {
+  label: LocaleKey;
+  value: string;
+  icon: LucideIcon;
+};
+
+type AssistGenderChoice = {
+  label: LocaleKey;
+  value: 'm' | 'f' | 'other';
+  icon: LucideIcon;
+};
+
+type AssistScreen =
+  | { kind: 'photo'; question: LocaleKey }
+  | {
+      kind: 'text';
+      question: LocaleKey;
+      field: FieldName;
+      multiline?: boolean;
+      inputMode?: AssistInputMode;
+    }
+  | { kind: 'gender'; question: LocaleKey; owner: AssistOwner }
+  | { kind: 'choice'; question: LocaleKey; field: FieldName; choices: AssistChoice[] }
+  | { kind: 'add-member'; question: LocaleKey }
+  | { kind: 'review'; question: LocaleKey }
+  | { kind: 'preview'; question: LocaleKey }
+  | { kind: 'download'; question: LocaleKey };
+
+type FlowProps = {
+  step: AppStep;
+  setStep: (step: AppStep) => void;
+  documents: OcrDocument[];
+  userData: UserData;
+  warnings: string[];
+  error: string;
+  isProcessing: boolean;
+  isGenerating: boolean;
+  previewUrl: string;
+  canReview: boolean;
+  mappedFieldCount: number;
+  handleFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
+  startOcr: (targetDocs?: OcrDocument[]) => Promise<void>;
+  retryFailedOcr: () => Promise<void>;
+  reviewExtractedFields: (options?: { moveToAgentReview?: boolean }) => boolean;
+  updateField: (field: FieldName, value: string) => void;
+  updateDocumentTarget: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  updateGender: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
+  generatePdf: () => Promise<boolean>;
+  downloadPdf: () => void;
+};
+
+const modeStorageKey = 'annapurna-ui-mode';
+
+const assistTargetOptions: Array<{ value: OcrTargetPrefix; label: LocaleKey }> = [
+  { value: 'hof', label: 'assist.target.you' },
+  { value: 'member1', label: 'assist.target.member1' },
+  { value: 'member2', label: 'assist.target.member2' },
+  { value: 'member3', label: 'assist.target.member3' },
+  { value: 'member4', label: 'assist.target.member4' },
+  { value: 'member5', label: 'assist.target.member5' }
+];
+
+const assistGenderChoices: AssistGenderChoice[] = [
+  { label: 'choice.male', value: 'm', icon: User },
+  { label: 'choice.female', value: 'f', icon: HeartHandshake },
+  { label: 'choice.otherGender', value: 'other', icon: Users }
+];
+
+const relationChoices: AssistChoice[] = [
+  { label: 'choice.spouse', value: 'Spouse', icon: HeartHandshake },
+  { label: 'choice.child', value: 'Child', icon: User },
+  { label: 'choice.parent', value: 'Parent', icon: Home },
+  { label: 'choice.otherRelation', value: 'Other', icon: Users }
+];
+
+const employmentChoices: AssistChoice[] = [
+  { label: 'choice.workDaily', value: 'Daily wage work', icon: Briefcase },
+  { label: 'choice.workSelf', value: 'Self-employed', icon: User },
+  { label: 'choice.workNone', value: 'Unemployed', icon: Home },
+  { label: 'choice.workOther', value: 'Other', icon: Users }
+];
+
+const educationChoices: AssistChoice[] = [
+  { label: 'choice.eduNone', value: 'No schooling', icon: Home },
+  { label: 'choice.eduPrimary', value: 'Primary', icon: GraduationCap },
+  { label: 'choice.eduSecondary', value: 'Secondary', icon: GraduationCap },
+  { label: 'choice.eduHigher', value: 'Higher', icon: GraduationCap }
+];
+
+const schemeChoices: AssistChoice[] = [
+  { label: 'choice.schemeFood', value: 'Food assistance', icon: HeartHandshake },
+  { label: 'choice.schemePension', value: 'Pension', icon: Home },
+  { label: 'choice.schemeHealth', value: 'Health support', icon: CheckCircle2 },
+  { label: 'choice.schemeOther', value: 'Other', icon: Users }
+];
+
+const hofAssistScreens: AssistScreen[] = [
+  { kind: 'photo', question: 'assist.photo.title' },
+  { kind: 'text', question: 'assist.name', field: 'hof_name' },
+  { kind: 'text', question: 'assist.dob', field: 'hof_dob', inputMode: 'numeric' },
+  { kind: 'gender', question: 'assist.gender', owner: 'hof' },
+  { kind: 'text', question: 'assist.aadhaar', field: 'hof_aadhaar', inputMode: 'numeric' },
+  { kind: 'text', question: 'assist.address', field: 'hof_address', multiline: true },
+  {
+    kind: 'choice',
+    question: 'assist.employment',
+    field: 'hof_employment_status',
+    choices: employmentChoices
+  },
+  { kind: 'choice', question: 'assist.education', field: 'hof_education', choices: educationChoices },
+  { kind: 'choice', question: 'assist.scheme', field: 'hof_scheme', choices: schemeChoices }
+];
+
+function getInitialMode(): UiMode {
+  if (typeof window === 'undefined') return 'agent';
+  return window.localStorage.getItem(modeStorageKey) === 'assist' ? 'assist' : 'agent';
+}
+
 export default function App() {
+  const [mode, setMode] = useState<UiMode>(() => getInitialMode());
   const [step, setStep] = useState<AppStep>('scan');
   const [documents, setDocuments] = useState<OcrDocument[]>([]);
   const [userData, setUserData] = useState<UserData>(() => createEmptyUserData());
@@ -104,6 +244,10 @@ export default function App() {
   const failedDocs = documents.filter((doc) => doc.status === 'error');
   const canReview = completedDocs.length > 0 && !isProcessing;
   const mappedFieldCount = useMemo(() => FIELD_NAMES.length, []);
+
+  useEffect(() => {
+    window.localStorage.setItem(modeStorageKey, mode);
+  }, [mode]);
 
   function handleFileSelection(event: ChangeEvent<HTMLInputElement>) {
     const files = Array.from(event.target.files || []);
@@ -195,11 +339,11 @@ export default function App() {
     }
   }
 
-  function reviewExtractedFields() {
+  function reviewExtractedFields(options: { moveToAgentReview?: boolean } = {}): boolean {
     const parseableDocs = documents.filter((doc) => doc.status === 'complete' && doc.text.trim());
     if (parseableDocs.length === 0) {
       setError('Run OCR successfully before reviewing extracted fields.');
-      return;
+      return false;
     }
 
     const parsedDocs = parseableDocs.map((doc) => ({
@@ -211,7 +355,8 @@ export default function App() {
     setUserData((current) => mergeParsedDocumentValues(current, parsedDocs));
     setWarnings((current) => [...current, ...parseWarnings]);
     setError('');
-    setStep('review');
+    if (options.moveToAgentReview ?? true) setStep('review');
+    return true;
   }
 
   async function retryFailedOcr() {
@@ -247,7 +392,7 @@ export default function App() {
     }));
   }
 
-  async function generatePdf() {
+  async function generatePdf(): Promise<boolean> {
     setIsGenerating(true);
     setError('');
 
@@ -261,8 +406,10 @@ export default function App() {
       setFilledPdfBytes(bytes);
       setPreviewUrl(url);
       setStep('preview');
+      return true;
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Could not create the filled PDF.');
+      return false;
     } finally {
       setIsGenerating(false);
     }
@@ -278,6 +425,84 @@ export default function App() {
     anchor.click();
     URL.revokeObjectURL(url);
   }
+
+  const flowProps: FlowProps = {
+    step,
+    setStep,
+    documents,
+    userData,
+    warnings,
+    error,
+    isProcessing,
+    isGenerating,
+    previewUrl,
+    canReview,
+    mappedFieldCount,
+    handleFileSelection,
+    startOcr,
+    retryFailedOcr,
+    reviewExtractedFields,
+    updateField,
+    updateDocumentTarget,
+    updateGender,
+    generatePdf,
+    downloadPdf
+  };
+
+  return (
+    <>
+      <ModeToggle mode={mode} onChange={setMode} />
+      {mode === 'agent' ? <AgentFlow {...flowProps} /> : <AssistFlow {...flowProps} />}
+    </>
+  );
+}
+
+function ModeToggle({ mode, onChange }: { mode: UiMode; onChange: (mode: UiMode) => void }) {
+  return (
+    <div className="mode-toggle-wrap">
+      <div className="mode-toggle" role="group" aria-label="Mode">
+        <button
+          type="button"
+          className={mode === 'agent' ? 'mode-choice active' : 'mode-choice'}
+          onClick={() => onChange('agent')}
+        >
+          {t('mode.agent', {}, mode === 'assist' ? 'bn' : 'en')}
+        </button>
+        <button
+          type="button"
+          className={mode === 'assist' ? 'mode-choice active' : 'mode-choice'}
+          onClick={() => onChange('assist')}
+        >
+          {t('mode.assist', {}, mode === 'assist' ? 'bn' : 'en')}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function AgentFlow({
+  step,
+  setStep,
+  documents,
+  userData,
+  warnings,
+  error,
+  isProcessing,
+  isGenerating,
+  previewUrl,
+  canReview,
+  mappedFieldCount,
+  handleFileSelection,
+  startOcr,
+  retryFailedOcr,
+  reviewExtractedFields,
+  updateField,
+  updateDocumentTarget,
+  updateGender,
+  generatePdf,
+  downloadPdf
+}: FlowProps) {
+  const activeStepIndex = steps.indexOf(step);
 
   return (
     <main className="app-shell">
@@ -346,7 +571,7 @@ export default function App() {
             canReview={canReview}
             onTargetChange={updateDocumentTarget}
             onRetry={retryFailedOcr}
-            onReview={reviewExtractedFields}
+            onReview={() => reviewExtractedFields()}
           />
         )}
 
@@ -361,7 +586,7 @@ export default function App() {
         )}
 
         {step === 'fill' && (
-          <FillPanel isGenerating={isGenerating} onBack={() => setStep('review')} onGenerate={generatePdf} />
+          <FillPanel isGenerating={isGenerating} onBack={() => setStep('review')} onGenerate={() => void generatePdf()} />
         )}
 
         {step === 'preview' && (
@@ -373,6 +598,489 @@ export default function App() {
         )}
       </section>
     </main>
+  );
+}
+
+function AssistFlow({
+  documents,
+  userData,
+  warnings,
+  error,
+  isProcessing,
+  isGenerating,
+  previewUrl,
+  handleFileSelection,
+  startOcr,
+  retryFailedOcr,
+  reviewExtractedFields,
+  updateField,
+  updateDocumentTarget,
+  updateGender,
+  generatePdf,
+  downloadPdf
+}: FlowProps) {
+  const [screenIndex, setScreenIndex] = useState(0);
+  const [memberCount, setMemberCount] = useState(0);
+  const [muted, setMuted] = useState(false);
+  const screens = useMemo(() => buildAssistScreens(memberCount), [memberCount]);
+  const activeIndex = Math.min(screenIndex, screens.length - 1);
+  const screen = screens[activeIndex];
+  const question = t(screen.question);
+  const hasCompletedDocuments = documents.some((doc) => doc.status === 'complete');
+
+  useEffect(() => {
+    if (screenIndex > screens.length - 1) setScreenIndex(screens.length - 1);
+  }, [screenIndex, screens.length]);
+
+  useEffect(() => {
+    speakPrompt(question, muted);
+    return () => stopSpeaking();
+  }, [muted, question]);
+
+  function goBack() {
+    setScreenIndex((current) => Math.max(0, current - 1));
+  }
+
+  function goNext() {
+    setScreenIndex((current) => Math.min(screens.length - 1, current + 1));
+  }
+
+  function handlePhotoNext() {
+    if (hasCompletedDocuments) {
+      reviewExtractedFields({ moveToAgentReview: false });
+    }
+    goNext();
+  }
+
+  function handleAddMember(addMember: boolean) {
+    if (addMember && memberCount < 5) {
+      setMemberCount((current) => Math.min(5, current + 1));
+      return;
+    }
+
+    goNext();
+  }
+
+  async function handleReviewConfirm() {
+    const generated = await generatePdf();
+    if (generated) goNext();
+  }
+
+  function renderScreen() {
+    switch (screen.kind) {
+      case 'photo':
+        return (
+          <AssistPhotoStep
+            documents={documents}
+            isProcessing={isProcessing}
+            onFileSelection={handleFileSelection}
+            onTargetChange={updateDocumentTarget}
+            onReadDocuments={() => void startOcr()}
+            onRetry={() => void retryFailedOcr()}
+          />
+        );
+      case 'text':
+        return (
+          <AssistTextStep
+            screen={screen}
+            value={userData[screen.field]}
+            onUpdate={(value) => updateField(screen.field, value)}
+          />
+        );
+      case 'gender':
+        return (
+          <AssistGenderStep
+            owner={screen.owner}
+            selected={selectedGender(screen.owner, userData)}
+            onChange={(selected) => updateGender(screen.owner, selected)}
+          />
+        );
+      case 'choice':
+        return (
+          <AssistChoiceStep
+            choices={screen.choices}
+            selectedValue={userData[screen.field]}
+            onSelect={(value) => updateField(screen.field, value)}
+          />
+        );
+      case 'add-member':
+        return <AssistAddMemberStep onAnswer={handleAddMember} />;
+      case 'review':
+        return <AssistReviewStep userData={userData} memberCount={memberCount} />;
+      case 'preview':
+        return <AssistPreviewStep previewUrl={previewUrl} />;
+      case 'download':
+        return <AssistDownloadStep />;
+    }
+  }
+
+  function renderActions() {
+    if (screen.kind === 'add-member') {
+      return (
+        <div className="assist-nav">
+          <button className="assist-back" type="button" onClick={goBack} disabled={activeIndex === 0}>
+            <ArrowLeft size={22} />
+            {t('assist.back')}
+          </button>
+        </div>
+      );
+    }
+
+    if (screen.kind === 'review') {
+      return (
+        <div className="assist-nav">
+          <button className="assist-back" type="button" onClick={goBack}>
+            <ArrowLeft size={22} />
+            {t('assist.review.edit')}
+          </button>
+          <button className="assist-next" type="button" onClick={() => void handleReviewConfirm()} disabled={isGenerating}>
+            {isGenerating ? <Loader2 className="spin" size={22} /> : <Check size={22} />}
+            {t('assist.review.confirm')}
+          </button>
+        </div>
+      );
+    }
+
+    if (screen.kind === 'download') {
+      return (
+        <div className="assist-nav">
+          <button className="assist-back" type="button" onClick={goBack}>
+            <ArrowLeft size={22} />
+            {t('assist.back')}
+          </button>
+          <button className="assist-next" type="button" onClick={downloadPdf}>
+            <Download size={22} />
+            {t('assist.download.button')}
+          </button>
+        </div>
+      );
+    }
+
+    return (
+      <div className="assist-nav">
+        <button className="assist-back" type="button" onClick={goBack} disabled={activeIndex === 0}>
+          <ArrowLeft size={22} />
+          {t('assist.back')}
+        </button>
+        <button
+          className="assist-next"
+          type="button"
+          onClick={screen.kind === 'photo' ? handlePhotoNext : goNext}
+          disabled={isProcessing}
+        >
+          {screen.kind === 'photo' && isProcessing ? <Loader2 className="spin" size={22} /> : <ArrowRight size={22} />}
+          {screen.kind === 'photo' && hasCompletedDocuments ? t('assist.photo.next') : t('assist.next')}
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <main className="assist-shell">
+      <header className="assist-topbar">
+        <div>
+          <p className="assist-eyebrow">{t('app.title')}</p>
+          <h1>{question}</h1>
+        </div>
+        <div className="assist-privacy">{t('privacy')}</div>
+      </header>
+
+      <section className="assist-progress" aria-label={t('assist.progress', { current: activeIndex + 1, total: screens.length })}>
+        <span>{t('assist.progress', { current: activeIndex + 1, total: screens.length })}</span>
+        <progress value={activeIndex + 1} max={screens.length} />
+      </section>
+
+      <section className="assist-card">
+        <div className="assist-toolbar">
+          <button className="assist-listen" type="button" onClick={() => speakPrompt(question, false)}>
+            <Volume2 size={20} />
+            {t('assist.listen')}
+          </button>
+          <button
+            className="assist-listen"
+            type="button"
+            onClick={() => {
+              setMuted((current) => !current);
+              stopSpeaking();
+            }}
+          >
+            {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
+            {muted ? t('assist.soundOn') : t('assist.mute')}
+          </button>
+        </div>
+
+        {error && (
+          <section className="notice error" role="alert">
+            <AlertTriangle size={20} />
+            <span>{t('assist.problem')}</span>
+          </section>
+        )}
+
+        {warnings.length > 0 && (
+          <section className="notice warning">
+            <AlertTriangle size={20} />
+            <span>{t('assist.warning')}</span>
+          </section>
+        )}
+
+        {renderScreen()}
+        {renderActions()}
+      </section>
+    </main>
+  );
+}
+
+function AssistPhotoStep({
+  documents,
+  isProcessing,
+  onFileSelection,
+  onTargetChange,
+  onReadDocuments,
+  onRetry
+}: {
+  documents: OcrDocument[];
+  isProcessing: boolean;
+  onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  onReadDocuments: () => void;
+  onRetry: () => void;
+}) {
+  const hasFailedDocuments = documents.some((doc) => doc.status === 'error');
+
+  return (
+    <div className="assist-photo-step">
+      <p>{t('assist.photo.help')}</p>
+      <label className="assist-upload">
+        <Camera size={26} />
+        {t('assist.photo.add')}
+        <input type="file" accept="image/*" capture="environment" multiple onChange={onFileSelection} />
+      </label>
+      <AssistDocumentList documents={documents} onTargetChange={onTargetChange} />
+      <div className="assist-inline-actions">
+        <button
+          className="assist-big-button primary"
+          type="button"
+          disabled={documents.length === 0 || isProcessing}
+          onClick={onReadDocuments}
+        >
+          {isProcessing ? <Loader2 className="spin" size={28} /> : <ScanText size={28} />}
+          {isProcessing ? t('assist.photo.reading') : t('assist.photo.read')}
+        </button>
+        {hasFailedDocuments && (
+          <button className="assist-big-button" type="button" onClick={onRetry} disabled={isProcessing}>
+            <RefreshCw size={28} />
+            {t('assist.photo.retry')}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function AssistDocumentList({
+  documents,
+  onTargetChange
+}: {
+  documents: OcrDocument[];
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+}) {
+  if (documents.length === 0) {
+    return <div className="assist-empty">{t('assist.photo.empty')}</div>;
+  }
+
+  return (
+    <section className="assist-document-list" aria-label={t('assist.whoseCard')}>
+      {documents.map((doc) => (
+        <article className="assist-document" key={doc.id}>
+          <img src={doc.previewUrl} alt="" />
+          <div>
+            <strong>{t('assist.whoseCard')}</strong>
+            <span>{assistStatusLabel(doc)}</span>
+            {doc.status === 'processing' && <progress value={doc.progress} max="100" />}
+            <div className="assist-target-grid">
+              {assistTargetOptions.map((option) => (
+                <button
+                  key={option.value}
+                  type="button"
+                  className={doc.targetPrefix === option.value ? 'assist-target active' : 'assist-target'}
+                  onClick={() => onTargetChange(doc.id, option.value)}
+                >
+                  {t(option.label)}
+                </button>
+              ))}
+            </div>
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function AssistTextStep({
+  screen,
+  value,
+  onUpdate
+}: {
+  screen: Extract<AssistScreen, { kind: 'text' }>;
+  value: string;
+  onUpdate: (value: string) => void;
+}) {
+  return (
+    <label className="assist-input-wrap">
+      {screen.multiline ? (
+        <textarea
+          className="assist-input"
+          value={value}
+          rows={5}
+          placeholder={t('assist.fill.empty')}
+          onChange={(event) => onUpdate(event.target.value)}
+        />
+      ) : (
+        <input
+          className="assist-input"
+          value={value}
+          inputMode={screen.inputMode}
+          placeholder={t('assist.fill.empty')}
+          onChange={(event) => onUpdate(event.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+function AssistGenderStep({
+  owner,
+  selected,
+  onChange
+}: {
+  owner: AssistOwner;
+  selected: 'm' | 'f' | 'other' | '';
+  onChange: (selected: 'm' | 'f' | 'other') => void;
+}) {
+  return (
+    <div className="assist-choice-grid">
+      {assistGenderChoices.map((choice) => {
+        const Icon = choice.icon;
+        return (
+          <button
+            className={selected === choice.value ? 'assist-choice active' : 'assist-choice'}
+            type="button"
+            key={`${owner}-${choice.value}`}
+            onClick={() => onChange(choice.value)}
+          >
+            <Icon size={34} />
+            <span>{t(choice.label)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssistChoiceStep({
+  choices,
+  selectedValue,
+  onSelect
+}: {
+  choices: AssistChoice[];
+  selectedValue: string;
+  onSelect: (value: string) => void;
+}) {
+  return (
+    <div className="assist-choice-grid">
+      {choices.map((choice) => {
+        const Icon = choice.icon;
+        return (
+          <button
+            className={selectedValue === choice.value ? 'assist-choice active' : 'assist-choice'}
+            type="button"
+            key={choice.value}
+            onClick={() => onSelect(choice.value)}
+          >
+            <Icon size={34} />
+            <span>{t(choice.label)}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+function AssistAddMemberStep({ onAnswer }: { onAnswer: (addMember: boolean) => void }) {
+  return (
+    <div className="assist-choice-grid two">
+      <button className="assist-choice" type="button" onClick={() => onAnswer(false)}>
+        <Check size={34} />
+        <span>{t('assist.no')}</span>
+      </button>
+      <button className="assist-choice active" type="button" onClick={() => onAnswer(true)}>
+        <Plus size={34} />
+        <span>{t('assist.yes')}</span>
+      </button>
+    </div>
+  );
+}
+
+function AssistReviewStep({ userData, memberCount }: { userData: UserData; memberCount: number }) {
+  return (
+    <div className="assist-summary">
+      <section>
+        <h2>{t('assist.target.you')}</h2>
+        <SummaryRow label={t('summary.name')} value={userData.hof_name} />
+        <SummaryRow label={t('summary.dob')} value={userData.hof_dob} />
+        <SummaryRow label={t('summary.aadhaar')} value={userData.hof_aadhaar} />
+        <SummaryRow label={t('summary.address')} value={userData.hof_address} />
+      </section>
+
+      <section>
+        <h2>{t('summary.members')}</h2>
+        {memberCount === 0 ? (
+          <p>{t('assist.noMembers')}</p>
+        ) : (
+          Array.from({ length: memberCount }, (_, index) => index + 1).map((memberNumber) => {
+            const owner = `member${memberNumber}` as `member${number}`;
+            return (
+              <div className="assist-member-summary" key={owner}>
+                <h3>{t(`assist.target.member${memberNumber}` as LocaleKey)}</h3>
+                <SummaryRow label={t('summary.name')} value={userData[memberField(owner, 'name')]} />
+                <SummaryRow label={t('summary.dob')} value={userData[memberField(owner, 'dob')]} />
+                <SummaryRow label={t('summary.aadhaar')} value={userData[memberField(owner, 'aadhaar')]} />
+              </div>
+            );
+          })
+        )}
+      </section>
+    </div>
+  );
+}
+
+function AssistPreviewStep({ previewUrl }: { previewUrl: string }) {
+  return (
+    <div className="assist-preview">
+      <p>{t('assist.preview.help')}</p>
+      {previewUrl ? (
+        <iframe className="pdf-preview" title={t('assist.preview.title')} src={previewUrl} />
+      ) : (
+        <div className="assist-empty">{t('assist.preview.wait')}</div>
+      )}
+    </div>
+  );
+}
+
+function AssistDownloadStep() {
+  return (
+    <div className="assist-download">
+      <CheckCircle2 size={58} />
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="summary-row">
+      <span>{label}</span>
+      <strong>{value.trim() || '-'}</strong>
+    </div>
   );
 }
 
@@ -722,6 +1430,87 @@ function GenderControl({
       ))}
     </fieldset>
   );
+}
+
+function buildAssistScreens(memberCount: number): AssistScreen[] {
+  const screens: AssistScreen[] = [...hofAssistScreens];
+
+  for (let memberNumber = 1; memberNumber <= memberCount; memberNumber += 1) {
+    const owner = `member${memberNumber}` as `member${number}`;
+    screens.push(
+      { kind: 'text', question: 'assist.member.name', field: memberField(owner, 'name') },
+      {
+        kind: 'choice',
+        question: 'assist.member.relation',
+        field: memberField(owner, 'relation'),
+        choices: relationChoices
+      },
+      { kind: 'gender', question: 'assist.member.gender', owner },
+      {
+        kind: 'text',
+        question: 'assist.member.dob',
+        field: memberField(owner, 'dob'),
+        inputMode: 'numeric'
+      },
+      {
+        kind: 'text',
+        question: 'assist.member.aadhaar',
+        field: memberField(owner, 'aadhaar'),
+        inputMode: 'numeric'
+      }
+    );
+  }
+
+  if (memberCount < 5) {
+    screens.push({
+      kind: 'add-member',
+      question: memberCount === 0 ? 'assist.member.add' : 'assist.member.more'
+    });
+  }
+
+  screens.push(
+    { kind: 'review', question: 'assist.review.title' },
+    { kind: 'preview', question: 'assist.preview.title' },
+    { kind: 'download', question: 'assist.download.title' }
+  );
+
+  return screens;
+}
+
+function memberField(owner: `member${number}`, suffix: MemberFieldSuffix): FieldName {
+  return contractField(`${owner}_${suffix}`);
+}
+
+function contractField(field: string): FieldName {
+  if ((FIELD_NAMES as readonly string[]).includes(field)) return field as FieldName;
+  throw new Error(`Unknown field "${field}"`);
+}
+
+function selectedGender(owner: AssistOwner, userData: UserData): 'm' | 'f' | 'other' | '' {
+  const fields =
+    owner === 'hof'
+      ? {
+          m: 'gender_m',
+          f: 'gender_f',
+          other: 'gender_other'
+        }
+      : {
+          m: `${owner}_gender_m`,
+          f: `${owner}_gender_f`,
+          other: `${owner}_gender_other`
+        };
+
+  if (userData[contractField(fields.m)] === 'X') return 'm';
+  if (userData[contractField(fields.f)] === 'X') return 'f';
+  if (userData[contractField(fields.other)] === 'X') return 'other';
+  return '';
+}
+
+function assistStatusLabel(doc: OcrDocument): string {
+  if (doc.status === 'processing') return t('assist.card.reading');
+  if (doc.status === 'complete') return t('assist.card.done');
+  if (doc.status === 'error') return t('assist.card.problem');
+  return t('assist.card.ready');
 }
 
 function formatBytes(bytes: number): string {
