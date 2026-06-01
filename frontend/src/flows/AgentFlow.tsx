@@ -1,0 +1,563 @@
+import type { ChangeEvent } from 'react';
+import {
+  AlertTriangle,
+  Camera,
+  CheckCircle2,
+  Download,
+  FileCheck2,
+  FileText,
+  Loader2,
+  RefreshCw,
+  ScanText,
+  ShieldCheck
+} from 'lucide-react';
+import type { FieldName, UserData } from '../data/fieldNames';
+import type { AppStep, OcrDocument, OcrTargetPrefix } from '../types';
+import type { FlowProps } from './types';
+
+const steps: AppStep[] = ['scan', 'ocr', 'review', 'fill', 'preview', 'download'];
+
+const stepLabels: Record<AppStep, string> = {
+  scan: 'Scan',
+  ocr: 'OCR',
+  review: 'Review & Edit',
+  fill: 'Fill',
+  preview: 'Preview',
+  download: 'Download'
+};
+
+const hofFieldGroups: Array<{ title: string; fields: FieldName[] }> = [
+  {
+    title: 'Head of Family',
+    fields: [
+      'hof_name',
+      'hof_dob',
+      'hof_relation',
+      'hof_aadhaar',
+      'hof_pan',
+      'hof_ration_card',
+      'hof_epic',
+      'hof_address',
+      'hof_mobile'
+    ]
+  },
+  {
+    title: 'HOF Bank, Work, Education & Scheme',
+    fields: [
+      'hof_bank_name',
+      'hof_bank_account',
+      'hof_bank_ifsc',
+      'hof_employment_status',
+      'hof_education',
+      'hof_scheme'
+    ]
+  }
+];
+
+const memberFields = [
+  'name',
+  'dob',
+  'relation',
+  'aadhaar',
+  'pan',
+  'ration_card',
+  'epic',
+  'address',
+  'mobile',
+  'bank_name',
+  'bank_account',
+  'bank_ifsc',
+  'employment_status',
+  'education',
+  'scheme'
+] as const;
+
+const genderOptions = [
+  { key: 'm', label: 'Male' },
+  { key: 'f', label: 'Female' },
+  { key: 'other', label: 'Other' }
+] as const;
+
+const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
+  { value: 'hof', label: 'HOF' },
+  { value: 'member1', label: 'Member 1' },
+  { value: 'member2', label: 'Member 2' },
+  { value: 'member3', label: 'Member 3' },
+  { value: 'member4', label: 'Member 4' },
+  { value: 'member5', label: 'Member 5' }
+];
+
+export default function AgentFlow({
+  step,
+  setStep,
+  documents,
+  userData,
+  warnings,
+  error,
+  isProcessing,
+  isGenerating,
+  previewUrl,
+  canReview,
+  mappedFieldCount,
+  handleFileSelection,
+  startOcr,
+  retryFailedOcr,
+  reviewExtractedFields,
+  updateField,
+  updateDocumentTarget,
+  updateGender,
+  generatePdf,
+  downloadPdf
+}: FlowProps) {
+  const activeStepIndex = steps.indexOf(step);
+
+  return (
+    <main className="app-shell">
+      <header className="topbar">
+        <div>
+          <p className="eyebrow">Annapurna Yojana PDF Helper</p>
+          <h1>Scan, review, fill, and download locally.</h1>
+          <p className="subtitle">
+            Unofficial helper tool. Review all fields and verify before submitting. Not affiliated
+            with any government body.
+          </p>
+        </div>
+        <div className="privacy-pill" aria-label="Privacy assurance">
+          <ShieldCheck size={18} />
+          <span>🔒 Your documents never leave your phone</span>
+        </div>
+      </header>
+
+      <nav className="steps" aria-label="Application progress">
+        {steps.map((item, index) => (
+          <button
+            type="button"
+            key={item}
+            className={index === activeStepIndex ? 'step active' : index < activeStepIndex ? 'step done' : 'step'}
+            disabled={index > activeStepIndex}
+            onClick={() => setStep(item)}
+          >
+            <span>{index + 1}</span>
+            {stepLabels[item]}
+          </button>
+        ))}
+      </nav>
+
+      {error && (
+        <section className="notice error" role="alert">
+          <AlertTriangle size={18} />
+          <span>{error}</span>
+        </section>
+      )}
+
+      {warnings.length > 0 && (
+        <section className="notice warning">
+          <AlertTriangle size={18} />
+          <div>
+            {warnings.map((warning) => (
+              <p key={warning}>{warning}</p>
+            ))}
+          </div>
+        </section>
+      )}
+
+      <section className="workspace">
+        {step === 'scan' && (
+          <ScanPanel
+            documents={documents}
+            onFileSelection={handleFileSelection}
+            onTargetChange={updateDocumentTarget}
+            onStartOcr={() => startOcr()}
+          />
+        )}
+
+        {step === 'ocr' && (
+          <OcrPanel
+            documents={documents}
+            isProcessing={isProcessing}
+            canReview={canReview}
+            onTargetChange={updateDocumentTarget}
+            onRetry={retryFailedOcr}
+            onReview={() => reviewExtractedFields()}
+          />
+        )}
+
+        {step === 'review' && (
+          <ReviewPanel
+            userData={userData}
+            mappedFieldCount={mappedFieldCount}
+            onUpdateField={updateField}
+            onUpdateGender={updateGender}
+            onConfirm={() => setStep('fill')}
+          />
+        )}
+
+        {step === 'fill' && (
+          <FillPanel isGenerating={isGenerating} onBack={() => setStep('review')} onGenerate={() => void generatePdf()} />
+        )}
+
+        {step === 'preview' && (
+          <PreviewPanel previewUrl={previewUrl} onBack={() => setStep('review')} onNext={() => setStep('download')} />
+        )}
+
+        {step === 'download' && (
+          <DownloadPanel onPreview={() => setStep('preview')} onDownload={downloadPdf} />
+        )}
+      </section>
+    </main>
+  );
+}
+
+function ScanPanel({
+  documents,
+  onFileSelection,
+  onTargetChange,
+  onStartOcr
+}: {
+  documents: OcrDocument[];
+  onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  onStartOcr: () => void;
+}) {
+  return (
+    <div className="panel two-column">
+      <section className="scan-input">
+        <Camera size={34} />
+        <h2>Scan documents</h2>
+        <p>Use the rear camera or choose saved images for Aadhaar, PAN, ration card, or EPIC scans.</p>
+        <label className="file-button">
+          <Camera size={18} />
+          Add scans
+          <input
+            type="file"
+            accept="image/*"
+            capture="environment"
+            multiple
+            onChange={onFileSelection}
+          />
+        </label>
+        <button className="primary-action" type="button" disabled={documents.length === 0} onClick={onStartOcr}>
+          <ScanText size={18} />
+          Start OCR
+        </button>
+      </section>
+      <DocumentList documents={documents} onTargetChange={onTargetChange} />
+    </div>
+  );
+}
+
+function OcrPanel({
+  documents,
+  isProcessing,
+  canReview,
+  onTargetChange,
+  onRetry,
+  onReview
+}: {
+  documents: OcrDocument[];
+  isProcessing: boolean;
+  canReview: boolean;
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  onRetry: () => void;
+  onReview: () => void;
+}) {
+  return (
+    <div className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>OCR in progress</h2>
+          <p>Text recognition runs entirely in this browser using English and Bengali models.</p>
+        </div>
+        {isProcessing && <Loader2 className="spin" size={28} />}
+      </div>
+      <DocumentList
+        documents={documents}
+        detailed
+        onTargetChange={onTargetChange}
+        targetEditable={!isProcessing}
+      />
+      <div className="action-row">
+        <button className="secondary-action" type="button" onClick={onRetry} disabled={isProcessing}>
+          <RefreshCw size={18} />
+          Retry blurry scans
+        </button>
+        <button className="primary-action" type="button" onClick={onReview} disabled={!canReview}>
+          <FileCheck2 size={18} />
+          Review extracted fields
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ReviewPanel({
+  userData,
+  mappedFieldCount,
+  onUpdateField,
+  onUpdateGender,
+  onConfirm
+}: {
+  userData: UserData;
+  mappedFieldCount: number;
+  onUpdateField: (field: FieldName, value: string) => void;
+  onUpdateGender: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="panel">
+      <div className="section-heading">
+        <div>
+          <h2>Review & edit</h2>
+          <p>Nothing is written to the PDF until these fields are confirmed.</p>
+        </div>
+        <span className="field-count">{mappedFieldCount} contract fields</span>
+      </div>
+
+      <section className="form-section">
+        <h3>HOF details</h3>
+        <GenderControl
+          owner="hof"
+          values={{
+            m: userData.gender_m,
+            f: userData.gender_f,
+            other: userData.gender_other
+          }}
+          onChange={onUpdateGender}
+        />
+        {hofFieldGroups.map((group) => (
+          <div className="input-grid" key={group.title}>
+            {group.fields.map((field) => (
+              <FieldInput key={field} field={field} value={userData[field]} onChange={onUpdateField} />
+            ))}
+          </div>
+        ))}
+      </section>
+
+      {Array.from({ length: 5 }, (_, index) => index + 1).map((memberNumber) => {
+        const owner = `member${memberNumber}` as const;
+        return (
+          <details className="member-section" key={owner} open={memberNumber === 1}>
+            <summary>Member {memberNumber}</summary>
+            <GenderControl
+              owner={owner}
+              values={{
+                m: userData[`${owner}_gender_m` as FieldName],
+                f: userData[`${owner}_gender_f` as FieldName],
+                other: userData[`${owner}_gender_other` as FieldName]
+              }}
+              onChange={onUpdateGender}
+            />
+            <div className="input-grid">
+              {memberFields.map((field) => {
+                const fullField = `${owner}_${field}` as FieldName;
+                return (
+                  <FieldInput key={fullField} field={fullField} value={userData[fullField]} onChange={onUpdateField} />
+                );
+              })}
+            </div>
+          </details>
+        );
+      })}
+
+      <div className="action-row sticky-actions">
+        <button className="primary-action" type="button" onClick={onConfirm}>
+          <CheckCircle2 size={18} />
+          Confirm reviewed data
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FillPanel({
+  isGenerating,
+  onBack,
+  onGenerate
+}: {
+  isGenerating: boolean;
+  onBack: () => void;
+  onGenerate: () => void;
+}) {
+  return (
+    <div className="panel centered">
+      <FileText size={40} />
+      <h2>Fill the original PDF</h2>
+      <p>The app will load the supplied form and overlay confirmed values at calibrated coordinates.</p>
+      <div className="action-row">
+        <button className="secondary-action" type="button" onClick={onBack} disabled={isGenerating}>
+          Edit fields
+        </button>
+        <button className="primary-action" type="button" onClick={onGenerate} disabled={isGenerating}>
+          {isGenerating ? <Loader2 className="spin" size={18} /> : <FileCheck2 size={18} />}
+          Create filled PDF
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PreviewPanel({
+  previewUrl,
+  onBack,
+  onNext
+}: {
+  previewUrl: string;
+  onBack: () => void;
+  onNext: () => void;
+}) {
+  return (
+    <div className="panel preview-panel">
+      <div className="section-heading">
+        <div>
+          <h2>Preview completed form</h2>
+          <p>Scroll the embedded PDF and verify every page before downloading.</p>
+        </div>
+        <div className="action-row compact">
+          <button className="secondary-action" type="button" onClick={onBack}>
+            Edit fields
+          </button>
+          <button className="primary-action" type="button" onClick={onNext}>
+            Continue
+          </button>
+        </div>
+      </div>
+      {previewUrl ? (
+        <iframe className="pdf-preview" title="Filled Annapurna PDF preview" src={previewUrl} />
+      ) : (
+        <p className="empty-state">Generate the PDF first to see the preview.</p>
+      )}
+    </div>
+  );
+}
+
+function DownloadPanel({ onPreview, onDownload }: { onPreview: () => void; onDownload: () => void }) {
+  return (
+    <div className="panel centered">
+      <Download size={42} />
+      <h2>Download verified PDF</h2>
+      <p>The file name will be `annapurna_filled.pdf`.</p>
+      <div className="action-row">
+        <button className="secondary-action" type="button" onClick={onPreview}>
+          Back to preview
+        </button>
+        <button className="primary-action" type="button" onClick={onDownload}>
+          <Download size={18} />
+          Download PDF
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function DocumentList({
+  documents,
+  detailed = false,
+  onTargetChange,
+  targetEditable = true
+}: {
+  documents: OcrDocument[];
+  detailed?: boolean;
+  onTargetChange?: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  targetEditable?: boolean;
+}) {
+  if (documents.length === 0) {
+    return <div className="empty-state">No scans added yet.</div>;
+  }
+
+  return (
+    <section className="document-list" aria-label="Selected scans">
+      {documents.map((doc) => (
+        <article className="document-item" key={doc.id}>
+          <img src={doc.previewUrl} alt="" />
+          <div>
+            <strong>{doc.file.name}</strong>
+            <span>{formatBytes(doc.file.size)}</span>
+            <label className="target-field">
+              <span>Fill target</span>
+              <select
+                value={doc.targetPrefix}
+                disabled={!onTargetChange || !targetEditable}
+                onChange={(event) =>
+                  onTargetChange?.(doc.id, event.target.value as OcrTargetPrefix)
+                }
+              >
+                {ocrTargetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {detailed && (
+              <>
+                <progress value={doc.progress} max="100" />
+                <span className={`status status-${doc.status}`}>
+                  {doc.status}
+                  {typeof doc.confidence === 'number' ? ` · ${Math.round(doc.confidence)}% confidence` : ''}
+                </span>
+                {doc.error && <p className="inline-error">{doc.error}</p>}
+              </>
+            )}
+          </div>
+        </article>
+      ))}
+    </section>
+  );
+}
+
+function FieldInput({
+  field,
+  value,
+  onChange
+}: {
+  field: FieldName;
+  value: string;
+  onChange: (field: FieldName, value: string) => void;
+}) {
+  const label = field.replace(/_/g, ' ');
+  const isAddress = field.endsWith('_address') || field === 'hof_address';
+
+  return (
+    <label className={isAddress ? 'field address-field' : 'field'}>
+      <span>{label}</span>
+      {isAddress ? (
+        <textarea value={value} onChange={(event) => onChange(field, event.target.value)} rows={3} />
+      ) : (
+        <input value={value} onChange={(event) => onChange(field, event.target.value)} />
+      )}
+    </label>
+  );
+}
+
+function GenderControl({
+  owner,
+  values,
+  onChange
+}: {
+  owner: 'hof' | `member${number}`;
+  values: Record<'m' | 'f' | 'other', string>;
+  onChange: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
+}) {
+  return (
+    <fieldset className="gender-control">
+      <legend>Gender checkboxes</legend>
+      {genderOptions.map((option) => (
+        <label key={option.key}>
+          <input
+            type="radio"
+            name={`${owner}-gender`}
+            checked={values[option.key] === 'X'}
+            onChange={() => onChange(owner, option.key)}
+          />
+          <span>{option.label}</span>
+        </label>
+      ))}
+    </fieldset>
+  );
+}
+
+function formatBytes(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}

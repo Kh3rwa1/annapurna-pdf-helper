@@ -19,7 +19,7 @@ Production-oriented scaffold for an installable PWA that scans ID documents, run
 
 ## Frontend Flow
 
-The top toggle is saved in `localStorage`. Agent Mode keeps the original dense English workflow, while Assist Mode uses a Bengali-first guided workflow with large choices and voice prompts. Both modes write to the same flat `userData` object and call the same client-side PDF generator.
+The top toggle is saved in `localStorage`. Agent Mode keeps the original dense English workflow, while Assist Mode uses a Bengali-first guided workflow with large icon choices, tappable date/number inputs, motion feedback, and voice prompts. Both modes write to the same flat `userData` object and call the same client-side PDF generator.
 
 The app follows the required order:
 

@@ -9,6 +9,7 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `app.title`
 - `mode.agent`
 - `mode.assist`
+- `mode.loadingAgent`
 - `privacy`
 
 ## Assist Flow
@@ -25,6 +26,7 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `assist.photo.help`
 - `assist.photo.add`
 - `assist.photo.read`
+- `assist.photo.preparing`
 - `assist.photo.reading`
 - `assist.photo.retry`
 - `assist.photo.next`
@@ -44,6 +46,7 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `assist.dob`
 - `assist.gender`
 - `assist.aadhaar`
+- `assist.mobile`
 - `assist.address`
 - `assist.employment`
 - `assist.education`
@@ -54,7 +57,11 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `assist.member.gender`
 - `assist.member.dob`
 - `assist.member.aadhaar`
+- `assist.member.mobile`
 - `assist.member.more`
+- `assist.date.day`
+- `assist.date.month`
+- `assist.date.year`
 - `assist.review.title`
 - `assist.review.edit`
 - `assist.review.confirm`

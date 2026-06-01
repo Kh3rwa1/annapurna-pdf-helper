@@ -538,6 +538,17 @@ progress {
   color: #fff;
 }
 
+.flow-loading {
+  width: min(1180px, calc(100vw - 32px));
+  margin: 20px auto;
+  padding: 18px;
+  border: 1px solid #dbe3ef;
+  border-radius: 8px;
+  background: #fff;
+  color: #475569;
+  font-weight: 850;
+}
+
 .assist-shell {
   width: min(900px, calc(100vw - 32px));
   margin: 0 auto;
@@ -589,10 +600,26 @@ progress {
   font-weight: 900;
 }
 
-.assist-progress progress {
+.assist-progress progress,
+.assist-progress-track {
   height: 14px;
   margin: 0;
   border-radius: 999px;
+}
+
+.assist-progress-track {
+  overflow: hidden;
+  background: #dbeafe;
+}
+
+.assist-progress-fill {
+  width: 0;
+  height: 100%;
+  border-radius: inherit;
+  background: #0f766e;
+}
+
+.assist-progress progress {
   accent-color: #0f766e;
 }
 
@@ -605,6 +632,11 @@ progress {
   border-radius: 8px;
   background: #fff;
   box-shadow: 0 18px 45px rgba(15, 23, 42, 0.08);
+}
+
+.assist-screen {
+  display: grid;
+  gap: 22px;
 }
 
 .assist-toolbar {
@@ -631,7 +663,7 @@ progress {
 }
 
 .assist-listen {
-  min-height: 42px;
+  min-height: 56px;
   padding: 8px 12px;
   border: 1px solid #cbd5e1;
   background: #f8fafc;
@@ -755,7 +787,7 @@ progress {
 }
 
 .assist-target {
-  min-height: 42px;
+  min-height: 56px;
   padding: 8px;
   border: 1px solid #cbd5e1;
   background: #fff;
@@ -802,6 +834,35 @@ textarea.assist-input {
   resize: vertical;
 }
 
+.assist-date-picker {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.assist-date-field {
+  display: grid;
+  gap: 8px;
+}
+
+.assist-date-field span {
+  color: #334155;
+  font-size: 1rem;
+  font-weight: 900;
+}
+
+.assist-date-field select {
+  width: 100%;
+  min-height: 76px;
+  padding: 12px 14px;
+  border: 2px solid #94a3b8;
+  border-radius: 8px;
+  background: #fff;
+  color: #0f172a;
+  font-size: 1.28rem;
+  font-weight: 850;
+}
+
 .assist-choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -822,6 +883,13 @@ textarea.assist-input {
   font-size: 1.25rem;
   line-height: 1.25;
   text-align: center;
+}
+
+.assist-choice-icon {
+  width: 48px;
+  height: 48px;
+  margin-bottom: 4px;
+  stroke-width: 1.9;
 }
 
 .assist-choice.active {
@@ -886,12 +954,55 @@ textarea.assist-input {
 }
 
 .assist-download {
+  position: relative;
   display: grid;
   place-items: center;
   align-content: center;
   gap: 22px;
   min-height: 360px;
   color: #0f766e;
+}
+
+.assist-download-check {
+  display: grid;
+  place-items: center;
+  width: 104px;
+  height: 104px;
+  border-radius: 999px;
+  background: #ccfbf1;
+  color: #0f766e;
+}
+
+.assist-confetti {
+  position: absolute;
+  inset: 50% auto auto 50%;
+  pointer-events: none;
+}
+
+.assist-confetti-piece {
+  position: absolute;
+  width: 10px;
+  height: 10px;
+  border-radius: 999px;
+  background: #f59e0b;
+}
+
+.assist-confetti-piece:nth-child(3n + 1) {
+  background: #0f766e;
+}
+
+.assist-confetti-piece:nth-child(3n + 2) {
+  background: #2563eb;
+}
+
+.assist-listen:active,
+.assist-back:active,
+.assist-next:active,
+.assist-big-button:active,
+.assist-upload:active,
+.assist-choice:active,
+.assist-target:active {
+  transform: scale(0.98);
 }
 
 @keyframes spin {
@@ -982,7 +1093,8 @@ textarea.assist-input {
   }
 
   .assist-target-grid,
-  .assist-choice-grid {
+  .assist-choice-grid,
+  .assist-date-picker {
     grid-template-columns: 1fr;
   }
 
@@ -992,5 +1104,26 @@ textarea.assist-input {
 
   .assist-preview {
     grid-template-rows: auto minmax(420px, 62vh);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.001ms !important;
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+  }
+
+  .assist-listen:active,
+  .assist-back:active,
+  .assist-next:active,
+  .assist-big-button:active,
+  .assist-upload:active,
+  .assist-choice:active,
+  .assist-target:active {
+    transform: none;
   }
 }

@@ -1,24 +1,42 @@
-import { ChangeEvent, useEffect, useMemo, useState } from 'react';
+import {
+  ChangeEvent,
+  lazy,
+  Suspense,
+  useEffect,
+  useMemo,
+  useState,
+  type ButtonHTMLAttributes,
+  type ComponentType,
+  type LabelHTMLAttributes,
+  type ReactNode
+} from 'react';
 import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  Baby,
+  BookOpen,
   Briefcase,
   Camera,
   Check,
   CheckCircle2,
+  CircleUserRound,
   Download,
-  FileCheck2,
-  FileText,
   GraduationCap,
+  HandHeart,
+  Handshake,
   HeartHandshake,
+  HeartPulse,
   Home,
   Loader2,
   Plus,
   RefreshCw,
   ScanText,
-  ShieldCheck,
-  User,
+  Store,
+  Tractor,
+  Utensils,
+  UserRound,
+  UserRoundCheck,
   Users,
   Volume2,
   VolumeX,
@@ -30,45 +48,9 @@ import { createFilledPdf } from './lib/pdfFill';
 import { parseOcrText, runOcrForDocument } from './lib/ocr';
 import { speakPrompt, stopSpeaking } from './lib/voice';
 import type { AppStep, OcrDocument, OcrParseResult, OcrTargetPrefix } from './types';
+import type { FlowProps, UiMode } from './flows/types';
 
-const steps: AppStep[] = ['scan', 'ocr', 'review', 'fill', 'preview', 'download'];
-
-const stepLabels: Record<AppStep, string> = {
-  scan: 'Scan',
-  ocr: 'OCR',
-  review: 'Review & Edit',
-  fill: 'Fill',
-  preview: 'Preview',
-  download: 'Download'
-};
-
-const hofFieldGroups: Array<{ title: string; fields: FieldName[] }> = [
-  {
-    title: 'Head of Family',
-    fields: [
-      'hof_name',
-      'hof_dob',
-      'hof_relation',
-      'hof_aadhaar',
-      'hof_pan',
-      'hof_ration_card',
-      'hof_epic',
-      'hof_address',
-      'hof_mobile'
-    ]
-  },
-  {
-    title: 'HOF Bank, Work, Education & Scheme',
-    fields: [
-      'hof_bank_name',
-      'hof_bank_account',
-      'hof_bank_ifsc',
-      'hof_employment_status',
-      'hof_education',
-      'hof_scheme'
-    ]
-  }
-];
+const LazyAgentFlow = lazy(() => import('./flows/AgentFlow'));
 
 const memberFields = [
   'name',
@@ -88,12 +70,6 @@ const memberFields = [
   'scheme'
 ] as const;
 
-const genderOptions = [
-  { key: 'm', label: 'Male' },
-  { key: 'f', label: 'Female' },
-  { key: 'other', label: 'Other' }
-] as const;
-
 const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
   { value: 'hof', label: 'HOF' },
   { value: 'member1', label: 'Member 1' },
@@ -103,11 +79,11 @@ const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
   { value: 'member5', label: 'Member 5' }
 ];
 
-type UiMode = 'agent' | 'assist';
-
 type AssistOwner = 'hof' | `member${number}`;
 type MemberFieldSuffix = (typeof memberFields)[number];
 type AssistInputMode = 'text' | 'numeric' | 'tel';
+type MotionModule = typeof import('framer-motion');
+type MotionApi = Pick<MotionModule, 'motion' | 'AnimatePresence'>;
 
 type AssistChoice = {
   label: LocaleKey;
@@ -123,6 +99,7 @@ type AssistGenderChoice = {
 
 type AssistScreen =
   | { kind: 'photo'; question: LocaleKey }
+  | { kind: 'date'; question: LocaleKey; field: FieldName }
   | {
       kind: 'text';
       question: LocaleKey;
@@ -137,29 +114,6 @@ type AssistScreen =
   | { kind: 'preview'; question: LocaleKey }
   | { kind: 'download'; question: LocaleKey };
 
-type FlowProps = {
-  step: AppStep;
-  setStep: (step: AppStep) => void;
-  documents: OcrDocument[];
-  userData: UserData;
-  warnings: string[];
-  error: string;
-  isProcessing: boolean;
-  isGenerating: boolean;
-  previewUrl: string;
-  canReview: boolean;
-  mappedFieldCount: number;
-  handleFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
-  startOcr: (targetDocs?: OcrDocument[]) => Promise<void>;
-  retryFailedOcr: () => Promise<void>;
-  reviewExtractedFields: (options?: { moveToAgentReview?: boolean }) => boolean;
-  updateField: (field: FieldName, value: string) => void;
-  updateDocumentTarget: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
-  updateGender: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
-  generatePdf: () => Promise<boolean>;
-  downloadPdf: () => void;
-};
-
 const modeStorageKey = 'annapurna-ui-mode';
 
 const assistTargetOptions: Array<{ value: OcrTargetPrefix; label: LocaleKey }> = [
@@ -172,45 +126,46 @@ const assistTargetOptions: Array<{ value: OcrTargetPrefix; label: LocaleKey }> =
 ];
 
 const assistGenderChoices: AssistGenderChoice[] = [
-  { label: 'choice.male', value: 'm', icon: User },
-  { label: 'choice.female', value: 'f', icon: HeartHandshake },
-  { label: 'choice.otherGender', value: 'other', icon: Users }
+  { label: 'choice.male', value: 'm', icon: UserRound },
+  { label: 'choice.female', value: 'f', icon: UserRoundCheck },
+  { label: 'choice.otherGender', value: 'other', icon: CircleUserRound }
 ];
 
 const relationChoices: AssistChoice[] = [
   { label: 'choice.spouse', value: 'Spouse', icon: HeartHandshake },
-  { label: 'choice.child', value: 'Child', icon: User },
-  { label: 'choice.parent', value: 'Parent', icon: Home },
+  { label: 'choice.child', value: 'Child', icon: Baby },
+  { label: 'choice.parent', value: 'Parent', icon: Handshake },
   { label: 'choice.otherRelation', value: 'Other', icon: Users }
 ];
 
 const employmentChoices: AssistChoice[] = [
-  { label: 'choice.workDaily', value: 'Daily wage work', icon: Briefcase },
-  { label: 'choice.workSelf', value: 'Self-employed', icon: User },
+  { label: 'choice.workDaily', value: 'Daily wage work', icon: Tractor },
+  { label: 'choice.workSelf', value: 'Self-employed', icon: Store },
   { label: 'choice.workNone', value: 'Unemployed', icon: Home },
-  { label: 'choice.workOther', value: 'Other', icon: Users }
+  { label: 'choice.workOther', value: 'Other', icon: Briefcase }
 ];
 
 const educationChoices: AssistChoice[] = [
-  { label: 'choice.eduNone', value: 'No schooling', icon: Home },
+  { label: 'choice.eduNone', value: 'No schooling', icon: BookOpen },
   { label: 'choice.eduPrimary', value: 'Primary', icon: GraduationCap },
   { label: 'choice.eduSecondary', value: 'Secondary', icon: GraduationCap },
   { label: 'choice.eduHigher', value: 'Higher', icon: GraduationCap }
 ];
 
 const schemeChoices: AssistChoice[] = [
-  { label: 'choice.schemeFood', value: 'Food assistance', icon: HeartHandshake },
+  { label: 'choice.schemeFood', value: 'Food assistance', icon: Utensils },
   { label: 'choice.schemePension', value: 'Pension', icon: Home },
-  { label: 'choice.schemeHealth', value: 'Health support', icon: CheckCircle2 },
-  { label: 'choice.schemeOther', value: 'Other', icon: Users }
+  { label: 'choice.schemeHealth', value: 'Health support', icon: HeartPulse },
+  { label: 'choice.schemeOther', value: 'Other', icon: HandHeart }
 ];
 
 const hofAssistScreens: AssistScreen[] = [
   { kind: 'photo', question: 'assist.photo.title' },
   { kind: 'text', question: 'assist.name', field: 'hof_name' },
-  { kind: 'text', question: 'assist.dob', field: 'hof_dob', inputMode: 'numeric' },
+  { kind: 'date', question: 'assist.dob', field: 'hof_dob' },
   { kind: 'gender', question: 'assist.gender', owner: 'hof' },
   { kind: 'text', question: 'assist.aadhaar', field: 'hof_aadhaar', inputMode: 'numeric' },
+  { kind: 'text', question: 'assist.mobile', field: 'hof_mobile', inputMode: 'tel' },
   { kind: 'text', question: 'assist.address', field: 'hof_address', multiline: true },
   {
     kind: 'choice',
@@ -239,7 +194,6 @@ export default function App() {
   const [previewUrl, setPreviewUrl] = useState('');
   const [filledPdfBytes, setFilledPdfBytes] = useState<Uint8Array | null>(null);
 
-  const activeStepIndex = steps.indexOf(step);
   const completedDocs = documents.filter((doc) => doc.status === 'complete');
   const failedDocs = documents.filter((doc) => doc.status === 'error');
   const canReview = completedDocs.length > 0 && !isProcessing;
@@ -452,7 +406,13 @@ export default function App() {
   return (
     <>
       <ModeToggle mode={mode} onChange={setMode} />
-      {mode === 'agent' ? <AgentFlow {...flowProps} /> : <AssistFlow {...flowProps} />}
+      {mode === 'agent' ? (
+        <Suspense fallback={<div className="flow-loading">{t('mode.loadingAgent')}</div>}>
+          <LazyAgentFlow {...flowProps} />
+        </Suspense>
+      ) : (
+        <AssistFlow {...flowProps} />
+      )}
     </>
   );
 }
@@ -480,127 +440,6 @@ function ModeToggle({ mode, onChange }: { mode: UiMode; onChange: (mode: UiMode)
   );
 }
 
-function AgentFlow({
-  step,
-  setStep,
-  documents,
-  userData,
-  warnings,
-  error,
-  isProcessing,
-  isGenerating,
-  previewUrl,
-  canReview,
-  mappedFieldCount,
-  handleFileSelection,
-  startOcr,
-  retryFailedOcr,
-  reviewExtractedFields,
-  updateField,
-  updateDocumentTarget,
-  updateGender,
-  generatePdf,
-  downloadPdf
-}: FlowProps) {
-  const activeStepIndex = steps.indexOf(step);
-
-  return (
-    <main className="app-shell">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Annapurna Yojana PDF Helper</p>
-          <h1>Scan, review, fill, and download locally.</h1>
-          <p className="subtitle">
-            Unofficial helper tool. Review all fields and verify before submitting. Not affiliated
-            with any government body.
-          </p>
-        </div>
-        <div className="privacy-pill" aria-label="Privacy assurance">
-          <ShieldCheck size={18} />
-          <span>🔒 Your documents never leave your phone</span>
-        </div>
-      </header>
-
-      <nav className="steps" aria-label="Application progress">
-        {steps.map((item, index) => (
-          <button
-            type="button"
-            key={item}
-            className={index === activeStepIndex ? 'step active' : index < activeStepIndex ? 'step done' : 'step'}
-            disabled={index > activeStepIndex}
-            onClick={() => setStep(item)}
-          >
-            <span>{index + 1}</span>
-            {stepLabels[item]}
-          </button>
-        ))}
-      </nav>
-
-      {error && (
-        <section className="notice error" role="alert">
-          <AlertTriangle size={18} />
-          <span>{error}</span>
-        </section>
-      )}
-
-      {warnings.length > 0 && (
-        <section className="notice warning">
-          <AlertTriangle size={18} />
-          <div>
-            {warnings.map((warning) => (
-              <p key={warning}>{warning}</p>
-            ))}
-          </div>
-        </section>
-      )}
-
-      <section className="workspace">
-        {step === 'scan' && (
-          <ScanPanel
-            documents={documents}
-            onFileSelection={handleFileSelection}
-            onTargetChange={updateDocumentTarget}
-            onStartOcr={() => startOcr()}
-          />
-        )}
-
-        {step === 'ocr' && (
-          <OcrPanel
-            documents={documents}
-            isProcessing={isProcessing}
-            canReview={canReview}
-            onTargetChange={updateDocumentTarget}
-            onRetry={retryFailedOcr}
-            onReview={() => reviewExtractedFields()}
-          />
-        )}
-
-        {step === 'review' && (
-          <ReviewPanel
-            userData={userData}
-            mappedFieldCount={mappedFieldCount}
-            onUpdateField={updateField}
-            onUpdateGender={updateGender}
-            onConfirm={() => setStep('fill')}
-          />
-        )}
-
-        {step === 'fill' && (
-          <FillPanel isGenerating={isGenerating} onBack={() => setStep('review')} onGenerate={() => void generatePdf()} />
-        )}
-
-        {step === 'preview' && (
-          <PreviewPanel previewUrl={previewUrl} onBack={() => setStep('review')} onNext={() => setStep('download')} />
-        )}
-
-        {step === 'download' && (
-          <DownloadPanel onPreview={() => setStep('preview')} onDownload={downloadPdf} />
-        )}
-      </section>
-    </main>
-  );
-}
-
 function AssistFlow({
   documents,
   userData,
@@ -622,6 +461,8 @@ function AssistFlow({
   const [screenIndex, setScreenIndex] = useState(0);
   const [memberCount, setMemberCount] = useState(0);
   const [muted, setMuted] = useState(false);
+  const [motionApi, setMotionApi] = useState<MotionApi | null>(null);
+  const reducedMotion = usePrefersReducedMotion();
   const screens = useMemo(() => buildAssistScreens(memberCount), [memberCount]);
   const activeIndex = Math.min(screenIndex, screens.length - 1);
   const screen = screens[activeIndex];
@@ -633,9 +474,19 @@ function AssistFlow({
   }, [screenIndex, screens.length]);
 
   useEffect(() => {
-    speakPrompt(question, muted);
+    void speakPrompt(screen.question, question, muted);
     return () => stopSpeaking();
-  }, [muted, question]);
+  }, [muted, question, screen.question]);
+
+  useEffect(() => {
+    let mounted = true;
+    void import('framer-motion').then(({ motion, AnimatePresence }) => {
+      if (mounted) setMotionApi({ motion, AnimatePresence });
+    });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   function goBack() {
     setScreenIndex((current) => Math.max(0, current - 1));
@@ -673,10 +524,20 @@ function AssistFlow({
           <AssistPhotoStep
             documents={documents}
             isProcessing={isProcessing}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             onFileSelection={handleFileSelection}
             onTargetChange={updateDocumentTarget}
             onReadDocuments={() => void startOcr()}
             onRetry={() => void retryFailedOcr()}
+          />
+        );
+      case 'date':
+        return (
+          <AssistDateStep
+            field={screen.field}
+            value={userData[screen.field]}
+            onUpdate={(value) => updateField(screen.field, value)}
           />
         );
       case 'text':
@@ -692,6 +553,8 @@ function AssistFlow({
           <AssistGenderStep
             owner={screen.owner}
             selected={selectedGender(screen.owner, userData)}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             onChange={(selected) => updateGender(screen.owner, selected)}
           />
         );
@@ -700,17 +563,19 @@ function AssistFlow({
           <AssistChoiceStep
             choices={screen.choices}
             selectedValue={userData[screen.field]}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             onSelect={(value) => updateField(screen.field, value)}
           />
         );
       case 'add-member':
-        return <AssistAddMemberStep onAnswer={handleAddMember} />;
+        return <AssistAddMemberStep motionApi={motionApi} reducedMotion={reducedMotion} onAnswer={handleAddMember} />;
       case 'review':
         return <AssistReviewStep userData={userData} memberCount={memberCount} />;
       case 'preview':
         return <AssistPreviewStep previewUrl={previewUrl} />;
       case 'download':
-        return <AssistDownloadStep />;
+        return <AssistDownloadStep motionApi={motionApi} reducedMotion={reducedMotion} />;
     }
   }
 
@@ -718,10 +583,17 @@ function AssistFlow({
     if (screen.kind === 'add-member') {
       return (
         <div className="assist-nav">
-          <button className="assist-back" type="button" onClick={goBack} disabled={activeIndex === 0}>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            className="assist-back"
+            type="button"
+            onClick={goBack}
+            disabled={activeIndex === 0}
+          >
             <ArrowLeft size={22} />
             {t('assist.back')}
-          </button>
+          </MotionButton>
         </div>
       );
     }
@@ -729,14 +601,21 @@ function AssistFlow({
     if (screen.kind === 'review') {
       return (
         <div className="assist-nav">
-          <button className="assist-back" type="button" onClick={goBack}>
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
             <ArrowLeft size={22} />
             {t('assist.review.edit')}
-          </button>
-          <button className="assist-next" type="button" onClick={() => void handleReviewConfirm()} disabled={isGenerating}>
+          </MotionButton>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            className="assist-next"
+            type="button"
+            onClick={() => void handleReviewConfirm()}
+            disabled={isGenerating}
+          >
             {isGenerating ? <Loader2 className="spin" size={22} /> : <Check size={22} />}
             {t('assist.review.confirm')}
-          </button>
+          </MotionButton>
         </div>
       );
     }
@@ -744,25 +623,34 @@ function AssistFlow({
     if (screen.kind === 'download') {
       return (
         <div className="assist-nav">
-          <button className="assist-back" type="button" onClick={goBack}>
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
             <ArrowLeft size={22} />
             {t('assist.back')}
-          </button>
-          <button className="assist-next" type="button" onClick={downloadPdf}>
+          </MotionButton>
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-next" type="button" onClick={downloadPdf}>
             <Download size={22} />
             {t('assist.download.button')}
-          </button>
+          </MotionButton>
         </div>
       );
     }
 
     return (
       <div className="assist-nav">
-        <button className="assist-back" type="button" onClick={goBack} disabled={activeIndex === 0}>
+        <MotionButton
+          motionApi={motionApi}
+          reducedMotion={reducedMotion}
+          className="assist-back"
+          type="button"
+          onClick={goBack}
+          disabled={activeIndex === 0}
+        >
           <ArrowLeft size={22} />
           {t('assist.back')}
-        </button>
-        <button
+        </MotionButton>
+        <MotionButton
+          motionApi={motionApi}
+          reducedMotion={reducedMotion}
           className="assist-next"
           type="button"
           onClick={screen.kind === 'photo' ? handlePhotoNext : goNext}
@@ -770,7 +658,7 @@ function AssistFlow({
         >
           {screen.kind === 'photo' && isProcessing ? <Loader2 className="spin" size={22} /> : <ArrowRight size={22} />}
           {screen.kind === 'photo' && hasCompletedDocuments ? t('assist.photo.next') : t('assist.next')}
-        </button>
+        </MotionButton>
       </div>
     );
   }
@@ -785,18 +673,28 @@ function AssistFlow({
         <div className="assist-privacy">{t('privacy')}</div>
       </header>
 
-      <section className="assist-progress" aria-label={t('assist.progress', { current: activeIndex + 1, total: screens.length })}>
-        <span>{t('assist.progress', { current: activeIndex + 1, total: screens.length })}</span>
-        <progress value={activeIndex + 1} max={screens.length} />
-      </section>
+      <AssistProgress
+        current={activeIndex + 1}
+        total={screens.length}
+        motionApi={motionApi}
+        reducedMotion={reducedMotion}
+      />
 
       <section className="assist-card">
         <div className="assist-toolbar">
-          <button className="assist-listen" type="button" onClick={() => speakPrompt(question, false)}>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            className="assist-listen"
+            type="button"
+            onClick={() => void speakPrompt(screen.question, question, muted)}
+          >
             <Volume2 size={20} />
             {t('assist.listen')}
-          </button>
-          <button
+          </MotionButton>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             className="assist-listen"
             type="button"
             onClick={() => {
@@ -806,7 +704,7 @@ function AssistFlow({
           >
             {muted ? <VolumeX size={20} /> : <Volume2 size={20} />}
             {muted ? t('assist.soundOn') : t('assist.mute')}
-          </button>
+          </MotionButton>
         </div>
 
         {error && (
@@ -823,8 +721,10 @@ function AssistFlow({
           </section>
         )}
 
-        {renderScreen()}
-        {renderActions()}
+        <MotionScreen motionApi={motionApi} reducedMotion={reducedMotion} screenKey={`${screen.kind}-${activeIndex}-${screen.question}`}>
+          {renderScreen()}
+          {renderActions()}
+        </MotionScreen>
       </section>
     </main>
   );
@@ -833,6 +733,8 @@ function AssistFlow({
 function AssistPhotoStep({
   documents,
   isProcessing,
+  motionApi,
+  reducedMotion,
   onFileSelection,
   onTargetChange,
   onReadDocuments,
@@ -840,37 +742,49 @@ function AssistPhotoStep({
 }: {
   documents: OcrDocument[];
   isProcessing: boolean;
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
   onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
   onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
   onReadDocuments: () => void;
   onRetry: () => void;
 }) {
   const hasFailedDocuments = documents.some((doc) => doc.status === 'error');
+  const isPreparing = isProcessing && documents.some((doc) => doc.status === 'processing' && doc.progress <= 1);
 
   return (
     <div className="assist-photo-step">
       <p>{t('assist.photo.help')}</p>
-      <label className="assist-upload">
+      <MotionLabel motionApi={motionApi} reducedMotion={reducedMotion} className="assist-upload">
         <Camera size={26} />
         {t('assist.photo.add')}
         <input type="file" accept="image/*" capture="environment" multiple onChange={onFileSelection} />
-      </label>
-      <AssistDocumentList documents={documents} onTargetChange={onTargetChange} />
+      </MotionLabel>
+      <AssistDocumentList documents={documents} motionApi={motionApi} reducedMotion={reducedMotion} onTargetChange={onTargetChange} />
       <div className="assist-inline-actions">
-        <button
+        <MotionButton
+          motionApi={motionApi}
+          reducedMotion={reducedMotion}
           className="assist-big-button primary"
           type="button"
           disabled={documents.length === 0 || isProcessing}
           onClick={onReadDocuments}
         >
           {isProcessing ? <Loader2 className="spin" size={28} /> : <ScanText size={28} />}
-          {isProcessing ? t('assist.photo.reading') : t('assist.photo.read')}
-        </button>
+          {isProcessing ? (isPreparing ? t('assist.photo.preparing') : t('assist.photo.reading')) : t('assist.photo.read')}
+        </MotionButton>
         {hasFailedDocuments && (
-          <button className="assist-big-button" type="button" onClick={onRetry} disabled={isProcessing}>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            className="assist-big-button"
+            type="button"
+            onClick={onRetry}
+            disabled={isProcessing}
+          >
             <RefreshCw size={28} />
             {t('assist.photo.retry')}
-          </button>
+          </MotionButton>
         )}
       </div>
     </div>
@@ -879,9 +793,13 @@ function AssistPhotoStep({
 
 function AssistDocumentList({
   documents,
+  motionApi,
+  reducedMotion,
   onTargetChange
 }: {
   documents: OcrDocument[];
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
   onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
 }) {
   if (documents.length === 0) {
@@ -899,14 +817,16 @@ function AssistDocumentList({
             {doc.status === 'processing' && <progress value={doc.progress} max="100" />}
             <div className="assist-target-grid">
               {assistTargetOptions.map((option) => (
-                <button
+                <MotionButton
+                  motionApi={motionApi}
+                  reducedMotion={reducedMotion}
                   key={option.value}
                   type="button"
                   className={doc.targetPrefix === option.value ? 'assist-target active' : 'assist-target'}
                   onClick={() => onTargetChange(doc.id, option.value)}
                 >
                   {t(option.label)}
-                </button>
+                </MotionButton>
               ))}
             </div>
           </div>
@@ -925,6 +845,8 @@ function AssistTextStep({
   value: string;
   onUpdate: (value: string) => void;
 }) {
+  const isNumberLike = screen.inputMode === 'numeric' || screen.inputMode === 'tel';
+
   return (
     <label className="assist-input-wrap">
       {screen.multiline ? (
@@ -940,6 +862,7 @@ function AssistTextStep({
           className="assist-input"
           value={value}
           inputMode={screen.inputMode}
+          pattern={isNumberLike ? '[0-9]*' : undefined}
           placeholder={t('assist.fill.empty')}
           onChange={(event) => onUpdate(event.target.value)}
         />
@@ -948,13 +871,84 @@ function AssistTextStep({
   );
 }
 
+function AssistDateStep({
+  field,
+  value,
+  onUpdate
+}: {
+  field: FieldName;
+  value: string;
+  onUpdate: (value: string) => void;
+}) {
+  const parts = parseDateParts(value);
+
+  function updatePart(part: 'day' | 'month' | 'year', nextValue: string) {
+    const nextParts = { ...parts, [part]: nextValue };
+    onUpdate(formatDateParts(nextParts));
+  }
+
+  return (
+    <div className="assist-date-picker" aria-label={t('assist.dob')}>
+      <DateSelect
+        label={t('assist.date.day')}
+        value={parts.day}
+        options={Array.from({ length: 31 }, (_, index) => String(index + 1).padStart(2, '0'))}
+        onChange={(value) => updatePart('day', value)}
+      />
+      <DateSelect
+        label={t('assist.date.month')}
+        value={parts.month}
+        options={Array.from({ length: 12 }, (_, index) => String(index + 1).padStart(2, '0'))}
+        onChange={(value) => updatePart('month', value)}
+      />
+      <DateSelect
+        label={t('assist.date.year')}
+        value={parts.year}
+        options={Array.from({ length: 110 }, (_, index) => String(new Date().getFullYear() - index))}
+        onChange={(value) => updatePart('year', value)}
+      />
+      <input type="hidden" name={field} value={value} readOnly />
+    </div>
+  );
+}
+
+function DateSelect({
+  label,
+  value,
+  options,
+  onChange
+}: {
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label className="assist-date-field">
+      <span>{label}</span>
+      <select value={value} onChange={(event) => onChange(event.target.value)}>
+        <option value="">--</option>
+        {options.map((option) => (
+          <option value={option} key={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
 function AssistGenderStep({
   owner,
   selected,
+  motionApi,
+  reducedMotion,
   onChange
 }: {
   owner: AssistOwner;
   selected: 'm' | 'f' | 'other' | '';
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
   onChange: (selected: 'm' | 'f' | 'other') => void;
 }) {
   return (
@@ -962,15 +956,17 @@ function AssistGenderStep({
       {assistGenderChoices.map((choice) => {
         const Icon = choice.icon;
         return (
-          <button
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             className={selected === choice.value ? 'assist-choice active' : 'assist-choice'}
             type="button"
             key={`${owner}-${choice.value}`}
             onClick={() => onChange(choice.value)}
           >
-            <Icon size={34} />
+            <Icon className="assist-choice-icon" size={48} />
             <span>{t(choice.label)}</span>
-          </button>
+          </MotionButton>
         );
       })}
     </div>
@@ -980,10 +976,14 @@ function AssistGenderStep({
 function AssistChoiceStep({
   choices,
   selectedValue,
+  motionApi,
+  reducedMotion,
   onSelect
 }: {
   choices: AssistChoice[];
   selectedValue: string;
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
   onSelect: (value: string) => void;
 }) {
   return (
@@ -991,32 +991,42 @@ function AssistChoiceStep({
       {choices.map((choice) => {
         const Icon = choice.icon;
         return (
-          <button
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
             className={selectedValue === choice.value ? 'assist-choice active' : 'assist-choice'}
             type="button"
             key={choice.value}
             onClick={() => onSelect(choice.value)}
           >
-            <Icon size={34} />
+            <Icon className="assist-choice-icon" size={48} />
             <span>{t(choice.label)}</span>
-          </button>
+          </MotionButton>
         );
       })}
     </div>
   );
 }
 
-function AssistAddMemberStep({ onAnswer }: { onAnswer: (addMember: boolean) => void }) {
+function AssistAddMemberStep({
+  motionApi,
+  reducedMotion,
+  onAnswer
+}: {
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+  onAnswer: (addMember: boolean) => void;
+}) {
   return (
     <div className="assist-choice-grid two">
-      <button className="assist-choice" type="button" onClick={() => onAnswer(false)}>
-        <Check size={34} />
+      <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-choice" type="button" onClick={() => onAnswer(false)}>
+        <Check className="assist-choice-icon" size={48} />
         <span>{t('assist.no')}</span>
-      </button>
-      <button className="assist-choice active" type="button" onClick={() => onAnswer(true)}>
-        <Plus size={34} />
+      </MotionButton>
+      <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-choice active" type="button" onClick={() => onAnswer(true)}>
+        <Plus className="assist-choice-icon" size={48} />
         <span>{t('assist.yes')}</span>
-      </button>
+      </MotionButton>
     </div>
   );
 }
@@ -1067,10 +1077,30 @@ function AssistPreviewStep({ previewUrl }: { previewUrl: string }) {
   );
 }
 
-function AssistDownloadStep() {
+function AssistDownloadStep({
+  motionApi,
+  reducedMotion
+}: {
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+}) {
+  const CheckIcon = motionApi && !reducedMotion ? motionApi.motion.div : 'div';
+
   return (
     <div className="assist-download">
-      <CheckCircle2 size={58} />
+      <CheckIcon
+        className="assist-download-check"
+        {...(motionApi && !reducedMotion
+          ? {
+              initial: { scale: 0.72, opacity: 0 },
+              animate: { scale: 1, opacity: 1 },
+              transition: { duration: 0.22, ease: 'easeOut' }
+            }
+          : {})}
+      >
+        <CheckCircle2 size={72} />
+      </CheckIcon>
+      <ConfettiBurst motionApi={motionApi} reducedMotion={reducedMotion} />
     </div>
   );
 }
@@ -1084,352 +1114,192 @@ function SummaryRow({ label, value }: { label: string; value: string }) {
   );
 }
 
-function ScanPanel({
-  documents,
-  onFileSelection,
-  onTargetChange,
-  onStartOcr
+function AssistProgress({
+  current,
+  total,
+  motionApi,
+  reducedMotion
 }: {
-  documents: OcrDocument[];
-  onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
-  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
-  onStartOcr: () => void;
+  current: number;
+  total: number;
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
 }) {
-  return (
-    <div className="panel two-column">
-      <section className="scan-input">
-        <Camera size={34} />
-        <h2>Scan documents</h2>
-        <p>Use the rear camera or choose saved images for Aadhaar, PAN, ration card, or EPIC scans.</p>
-        <label className="file-button">
-          <Camera size={18} />
-          Add scans
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            multiple
-            onChange={onFileSelection}
+  const percentage = `${Math.round((current / total) * 100)}%`;
+  const label = t('assist.progress', { current, total });
+
+  if (motionApi && !reducedMotion) {
+    const MotionFill = motionApi.motion.div;
+    return (
+      <section className="assist-progress" aria-label={label}>
+        <span>{label}</span>
+        <div className="assist-progress-track" aria-hidden="true">
+          <MotionFill
+            className="assist-progress-fill"
+            animate={{ width: percentage }}
+            transition={{ duration: 0.24, ease: 'easeOut' }}
           />
-        </label>
-        <button className="primary-action" type="button" disabled={documents.length === 0} onClick={onStartOcr}>
-          <ScanText size={18} />
-          Start OCR
-        </button>
+        </div>
       </section>
-      <DocumentList documents={documents} onTargetChange={onTargetChange} />
-    </div>
-  );
-}
-
-function OcrPanel({
-  documents,
-  isProcessing,
-  canReview,
-  onTargetChange,
-  onRetry,
-  onReview
-}: {
-  documents: OcrDocument[];
-  isProcessing: boolean;
-  canReview: boolean;
-  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
-  onRetry: () => void;
-  onReview: () => void;
-}) {
-  return (
-    <div className="panel">
-      <div className="section-heading">
-        <div>
-          <h2>OCR in progress</h2>
-          <p>Text recognition runs entirely in this browser using English and Bengali models.</p>
-        </div>
-        {isProcessing && <Loader2 className="spin" size={28} />}
-      </div>
-      <DocumentList
-        documents={documents}
-        detailed
-        onTargetChange={onTargetChange}
-        targetEditable={!isProcessing}
-      />
-      <div className="action-row">
-        <button className="secondary-action" type="button" onClick={onRetry} disabled={isProcessing}>
-          <RefreshCw size={18} />
-          Retry blurry scans
-        </button>
-        <button className="primary-action" type="button" onClick={onReview} disabled={!canReview}>
-          <FileCheck2 size={18} />
-          Review extracted fields
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function ReviewPanel({
-  userData,
-  mappedFieldCount,
-  onUpdateField,
-  onUpdateGender,
-  onConfirm
-}: {
-  userData: UserData;
-  mappedFieldCount: number;
-  onUpdateField: (field: FieldName, value: string) => void;
-  onUpdateGender: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
-  onConfirm: () => void;
-}) {
-  return (
-    <div className="panel">
-      <div className="section-heading">
-        <div>
-          <h2>Review & edit</h2>
-          <p>Nothing is written to the PDF until these fields are confirmed.</p>
-        </div>
-        <span className="field-count">{mappedFieldCount} contract fields</span>
-      </div>
-
-      <section className="form-section">
-        <h3>HOF details</h3>
-        <GenderControl
-          owner="hof"
-          values={{
-            m: userData.gender_m,
-            f: userData.gender_f,
-            other: userData.gender_other
-          }}
-          onChange={onUpdateGender}
-        />
-        {hofFieldGroups.map((group) => (
-          <div className="input-grid" key={group.title}>
-            {group.fields.map((field) => (
-              <FieldInput key={field} field={field} value={userData[field]} onChange={onUpdateField} />
-            ))}
-          </div>
-        ))}
-      </section>
-
-      {Array.from({ length: 5 }, (_, index) => index + 1).map((memberNumber) => {
-        const owner = `member${memberNumber}` as const;
-        return (
-          <details className="member-section" key={owner} open={memberNumber === 1}>
-            <summary>Member {memberNumber}</summary>
-            <GenderControl
-              owner={owner}
-              values={{
-                m: userData[`${owner}_gender_m` as FieldName],
-                f: userData[`${owner}_gender_f` as FieldName],
-                other: userData[`${owner}_gender_other` as FieldName]
-              }}
-              onChange={onUpdateGender}
-            />
-            <div className="input-grid">
-              {memberFields.map((field) => {
-                const fullField = `${owner}_${field}` as FieldName;
-                return (
-                  <FieldInput key={fullField} field={fullField} value={userData[fullField]} onChange={onUpdateField} />
-                );
-              })}
-            </div>
-          </details>
-        );
-      })}
-
-      <div className="action-row sticky-actions">
-        <button className="primary-action" type="button" onClick={onConfirm}>
-          <CheckCircle2 size={18} />
-          Confirm reviewed data
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function FillPanel({
-  isGenerating,
-  onBack,
-  onGenerate
-}: {
-  isGenerating: boolean;
-  onBack: () => void;
-  onGenerate: () => void;
-}) {
-  return (
-    <div className="panel centered">
-      <FileText size={40} />
-      <h2>Fill the original PDF</h2>
-      <p>The app will load the supplied form and overlay confirmed values at calibrated coordinates.</p>
-      <div className="action-row">
-        <button className="secondary-action" type="button" onClick={onBack} disabled={isGenerating}>
-          Edit fields
-        </button>
-        <button className="primary-action" type="button" onClick={onGenerate} disabled={isGenerating}>
-          {isGenerating ? <Loader2 className="spin" size={18} /> : <FileCheck2 size={18} />}
-          Create filled PDF
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function PreviewPanel({
-  previewUrl,
-  onBack,
-  onNext
-}: {
-  previewUrl: string;
-  onBack: () => void;
-  onNext: () => void;
-}) {
-  return (
-    <div className="panel preview-panel">
-      <div className="section-heading">
-        <div>
-          <h2>Preview completed form</h2>
-          <p>Scroll the embedded PDF and verify every page before downloading.</p>
-        </div>
-        <div className="action-row compact">
-          <button className="secondary-action" type="button" onClick={onBack}>
-            Edit fields
-          </button>
-          <button className="primary-action" type="button" onClick={onNext}>
-            Continue
-          </button>
-        </div>
-      </div>
-      {previewUrl ? (
-        <iframe className="pdf-preview" title="Filled Annapurna PDF preview" src={previewUrl} />
-      ) : (
-        <p className="empty-state">Generate the PDF first to see the preview.</p>
-      )}
-    </div>
-  );
-}
-
-function DownloadPanel({ onPreview, onDownload }: { onPreview: () => void; onDownload: () => void }) {
-  return (
-    <div className="panel centered">
-      <Download size={42} />
-      <h2>Download verified PDF</h2>
-      <p>The file name will be `annapurna_filled.pdf`.</p>
-      <div className="action-row">
-        <button className="secondary-action" type="button" onClick={onPreview}>
-          Back to preview
-        </button>
-        <button className="primary-action" type="button" onClick={onDownload}>
-          <Download size={18} />
-          Download PDF
-        </button>
-      </div>
-    </div>
-  );
-}
-
-function DocumentList({
-  documents,
-  detailed = false,
-  onTargetChange,
-  targetEditable = true
-}: {
-  documents: OcrDocument[];
-  detailed?: boolean;
-  onTargetChange?: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
-  targetEditable?: boolean;
-}) {
-  if (documents.length === 0) {
-    return <div className="empty-state">No scans added yet.</div>;
+    );
   }
 
   return (
-    <section className="document-list" aria-label="Selected scans">
-      {documents.map((doc) => (
-        <article className="document-item" key={doc.id}>
-          <img src={doc.previewUrl} alt="" />
-          <div>
-            <strong>{doc.file.name}</strong>
-            <span>{formatBytes(doc.file.size)}</span>
-            <label className="target-field">
-              <span>Fill target</span>
-              <select
-                value={doc.targetPrefix}
-                disabled={!onTargetChange || !targetEditable}
-                onChange={(event) =>
-                  onTargetChange?.(doc.id, event.target.value as OcrTargetPrefix)
-                }
-              >
-                {ocrTargetOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            {detailed && (
-              <>
-                <progress value={doc.progress} max="100" />
-                <span className={`status status-${doc.status}`}>
-                  {doc.status}
-                  {typeof doc.confidence === 'number' ? ` · ${Math.round(doc.confidence)}% confidence` : ''}
-                </span>
-                {doc.error && <p className="inline-error">{doc.error}</p>}
-              </>
-            )}
-          </div>
-        </article>
-      ))}
+    <section className="assist-progress" aria-label={label}>
+      <span>{label}</span>
+      <div className="assist-progress-track" aria-hidden="true">
+        <div className="assist-progress-fill" style={{ width: percentage }} />
+      </div>
     </section>
   );
 }
 
-function FieldInput({
-  field,
-  value,
-  onChange
+function MotionScreen({
+  motionApi,
+  reducedMotion,
+  screenKey,
+  children
 }: {
-  field: FieldName;
-  value: string;
-  onChange: (field: FieldName, value: string) => void;
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+  screenKey: string;
+  children: ReactNode;
 }) {
-  const label = field.replace(/_/g, ' ');
-  const isAddress = field.endsWith('_address') || field === 'hof_address';
+  if (!motionApi || reducedMotion) {
+    return <div className="assist-screen">{children}</div>;
+  }
 
+  const { AnimatePresence, motion } = motionApi;
+  const MotionDiv = motion.div;
   return (
-    <label className={isAddress ? 'field address-field' : 'field'}>
-      <span>{label}</span>
-      {isAddress ? (
-        <textarea value={value} onChange={(event) => onChange(field, event.target.value)} rows={3} />
-      ) : (
-        <input value={value} onChange={(event) => onChange(field, event.target.value)} />
-      )}
-    </label>
+    <AnimatePresence mode="wait" initial={false}>
+      <MotionDiv
+        className="assist-screen"
+        key={screenKey}
+        initial={{ opacity: 0, x: 24 }}
+        animate={{ opacity: 1, x: 0 }}
+        exit={{ opacity: 0, x: -24 }}
+        transition={{ duration: 0.22, ease: 'easeOut' }}
+      >
+        {children}
+      </MotionDiv>
+    </AnimatePresence>
   );
 }
 
-function GenderControl({
-  owner,
-  values,
-  onChange
-}: {
-  owner: 'hof' | `member${number}`;
-  values: Record<'m' | 'f' | 'other', string>;
-  onChange: (owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') => void;
+function MotionButton({
+  motionApi,
+  reducedMotion,
+  children,
+  ...props
+}: ButtonHTMLAttributes<HTMLButtonElement> & {
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+  children: ReactNode;
 }) {
+  if (!motionApi || reducedMotion) {
+    return <button {...props}>{children}</button>;
+  }
+
+  const MotionButtonElement = motionApi.motion.button as ComponentType<
+    ButtonHTMLAttributes<HTMLButtonElement> & {
+      whileTap?: { scale: number };
+      transition?: { duration: number };
+    }
+  >;
   return (
-    <fieldset className="gender-control">
-      <legend>Gender checkboxes</legend>
-      {genderOptions.map((option) => (
-        <label key={option.key}>
-          <input
-            type="radio"
-            name={`${owner}-gender`}
-            checked={values[option.key] === 'X'}
-            onChange={() => onChange(owner, option.key)}
-          />
-          <span>{option.label}</span>
-        </label>
-      ))}
-    </fieldset>
+    <MotionButtonElement whileTap={{ scale: 0.96 }} transition={{ duration: 0.12 }} {...props}>
+      {children}
+    </MotionButtonElement>
   );
+}
+
+function MotionLabel({
+  motionApi,
+  reducedMotion,
+  children,
+  ...props
+}: LabelHTMLAttributes<HTMLLabelElement> & {
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+  children: ReactNode;
+}) {
+  if (!motionApi || reducedMotion) {
+    return <label {...props}>{children}</label>;
+  }
+
+  const MotionLabelElement = motionApi.motion.label as ComponentType<
+    LabelHTMLAttributes<HTMLLabelElement> & {
+      whileTap?: { scale: number };
+      transition?: { duration: number };
+    }
+  >;
+  return (
+    <MotionLabelElement whileTap={{ scale: 0.96 }} transition={{ duration: 0.12 }} {...props}>
+      {children}
+    </MotionLabelElement>
+  );
+}
+
+function ConfettiBurst({
+  motionApi,
+  reducedMotion
+}: {
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+}) {
+  if (!motionApi || reducedMotion) return null;
+
+  const MotionSpan = motionApi.motion.span;
+  return (
+    <div className="assist-confetti" aria-hidden="true">
+      {Array.from({ length: 12 }, (_, index) => {
+        const angle = (index / 12) * Math.PI * 2;
+        const distance = 78 + (index % 3) * 12;
+        const x = Math.cos(angle) * distance;
+        const y = Math.sin(angle) * distance;
+        return (
+          <MotionSpan
+            className="assist-confetti-piece"
+            key={index}
+            initial={{ opacity: 0, scale: 0.4, x: 0, y: 0 }}
+            animate={{ opacity: [0, 1, 0], scale: [0.4, 1, 0.8], x, y }}
+            transition={{ duration: 0.28, ease: 'easeOut', delay: index * 0.008 }}
+          />
+        );
+      })}
+    </div>
+  );
+}
+
+function usePrefersReducedMotion(): boolean {
+  const [reducedMotion, setReducedMotion] = useState(false);
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !('matchMedia' in window)) return;
+    const query = window.matchMedia('(prefers-reduced-motion: reduce)');
+    setReducedMotion(query.matches);
+    const handleChange = () => setReducedMotion(query.matches);
+    query.addEventListener('change', handleChange);
+    return () => query.removeEventListener('change', handleChange);
+  }, []);
+
+  return reducedMotion;
+}
+
+function parseDateParts(value: string): { day: string; month: string; year: string } {
+  const [day = '', month = '', year = ''] = value.split(/[/-]/);
+  return {
+    day: day.padStart(day ? 2 : 0, '0'),
+    month: month.padStart(month ? 2 : 0, '0'),
+    year
+  };
+}
+
+function formatDateParts(parts: { day: string; month: string; year: string }): string {
+  const { day, month, year } = parts;
+  if (!day && !month && !year) return '';
+  return [day, month, year].join('/');
 }
 
 function buildAssistScreens(memberCount: number): AssistScreen[] {
@@ -1447,16 +1317,21 @@ function buildAssistScreens(memberCount: number): AssistScreen[] {
       },
       { kind: 'gender', question: 'assist.member.gender', owner },
       {
-        kind: 'text',
+        kind: 'date',
         question: 'assist.member.dob',
-        field: memberField(owner, 'dob'),
-        inputMode: 'numeric'
+        field: memberField(owner, 'dob')
       },
       {
         kind: 'text',
         question: 'assist.member.aadhaar',
         field: memberField(owner, 'aadhaar'),
         inputMode: 'numeric'
+      },
+      {
+        kind: 'text',
+        question: 'assist.member.mobile',
+        field: memberField(owner, 'mobile'),
+        inputMode: 'tel'
       }
     );
   }
@@ -1511,12 +1386,6 @@ function assistStatusLabel(doc: OcrDocument): string {
   if (doc.status === 'complete') return t('assist.card.done');
   if (doc.status === 'error') return t('assist.card.problem');
   return t('assist.card.ready');
-}
-
-function formatBytes(bytes: number): string {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
 function mergeParsedValues(
