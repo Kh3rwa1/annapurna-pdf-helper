@@ -18,6 +18,7 @@ import {
   BookOpen,
   Briefcase,
   Camera,
+  CreditCard,
   Check,
   CheckCircle2,
   CircleUserRound,
@@ -28,6 +29,8 @@ import {
   HeartHandshake,
   HeartPulse,
   Home,
+  IdCard,
+  Landmark,
   Loader2,
   Plus,
   RefreshCw,
@@ -79,11 +82,27 @@ const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
   { value: 'member5', label: 'Member 5' }
 ];
 
-type AssistOwner = 'hof' | `member${number}`;
+type MemberOwner = Exclude<OcrTargetPrefix, 'hof'>;
+type AssistOwner = OcrTargetPrefix;
 type MemberFieldSuffix = (typeof memberFields)[number];
 type AssistInputMode = 'text' | 'numeric' | 'tel';
 type MotionModule = typeof import('framer-motion');
 type MotionApi = Pick<MotionModule, 'motion' | 'AnimatePresence'>;
+type CardType = 'aadhaar' | 'pan' | 'epic' | 'ration' | 'bank';
+type CardFieldSuffix =
+  | 'name'
+  | 'dob'
+  | 'gender'
+  | 'aadhaar'
+  | 'address'
+  | 'pan'
+  | 'epic'
+  | 'ration_card'
+  | 'bank_name'
+  | 'bank_account'
+  | 'bank_ifsc';
+type AssistFieldSuffix = MemberFieldSuffix | 'gender';
+type AssistHistoryEntry = { screen: AssistScreen; queue: AssistScreen[] };
 
 type AssistChoice = {
   label: LocaleKey;
@@ -97,33 +116,111 @@ type AssistGenderChoice = {
   icon: LucideIcon;
 };
 
-type AssistScreen =
-  | { kind: 'photo'; question: LocaleKey }
-  | { kind: 'date'; question: LocaleKey; field: FieldName }
+type AssistManual =
   | {
       kind: 'text';
+      id: string;
+      owner: AssistOwner;
       question: LocaleKey;
+      label: LocaleKey;
       field: FieldName;
       multiline?: boolean;
       inputMode?: AssistInputMode;
     }
-  | { kind: 'gender'; question: LocaleKey; owner: AssistOwner }
-  | { kind: 'choice'; question: LocaleKey; field: FieldName; choices: AssistChoice[] }
+  | {
+      kind: 'date';
+      id: string;
+      owner: AssistOwner;
+      question: LocaleKey;
+      label: LocaleKey;
+      field: FieldName;
+    }
+  | { kind: 'gender'; id: string; owner: AssistOwner; question: LocaleKey; label: LocaleKey }
+  | {
+      kind: 'choice';
+      id: string;
+      owner: AssistOwner;
+      question: LocaleKey;
+      label: LocaleKey;
+      field: FieldName;
+      choices: AssistChoice[];
+    };
+
+type AssistScreen =
+  | { kind: 'offer-card'; owner: AssistOwner; card: CardType; question: LocaleKey }
+  | { kind: 'scan-card'; owner: AssistOwner; card: CardType; question: LocaleKey }
+  | { kind: 'confirm-card'; owner: AssistOwner; card: CardType; question: LocaleKey }
+  | { kind: 'manual'; manual: AssistManual; question: LocaleKey }
   | { kind: 'add-member'; question: LocaleKey }
   | { kind: 'review'; question: LocaleKey }
   | { kind: 'preview'; question: LocaleKey }
   | { kind: 'download'; question: LocaleKey };
 
+type CardConfig = {
+  type: CardType;
+  scanQuestion: LocaleKey;
+  offerQuestion?: LocaleKey;
+  label: LocaleKey;
+  help: LocaleKey;
+  icon: LucideIcon;
+  fields: CardFieldSuffix[];
+  optional?: boolean;
+};
+
 const modeStorageKey = 'annapurna-ui-mode';
 
-const assistTargetOptions: Array<{ value: OcrTargetPrefix; label: LocaleKey }> = [
-  { value: 'hof', label: 'assist.target.you' },
-  { value: 'member1', label: 'assist.target.member1' },
-  { value: 'member2', label: 'assist.target.member2' },
-  { value: 'member3', label: 'assist.target.member3' },
-  { value: 'member4', label: 'assist.target.member4' },
-  { value: 'member5', label: 'assist.target.member5' }
-];
+const cardOrder: CardType[] = ['aadhaar', 'pan', 'epic', 'ration', 'bank'];
+
+const cardConfigs: Record<CardType, CardConfig> = {
+  aadhaar: {
+    type: 'aadhaar',
+    scanQuestion: 'assist.card.scan.aadhaar',
+    label: 'assist.card.label.aadhaar',
+    help: 'assist.card.help.aadhaar',
+    icon: IdCard,
+    fields: ['name', 'dob', 'gender', 'aadhaar', 'address']
+  },
+  pan: {
+    type: 'pan',
+    scanQuestion: 'assist.card.scan.pan',
+    offerQuestion: 'assist.card.offer.pan',
+    label: 'assist.card.label.pan',
+    help: 'assist.card.help.pan',
+    icon: CreditCard,
+    fields: ['pan'],
+    optional: true
+  },
+  epic: {
+    type: 'epic',
+    scanQuestion: 'assist.card.scan.epic',
+    offerQuestion: 'assist.card.offer.epic',
+    label: 'assist.card.label.epic',
+    help: 'assist.card.help.epic',
+    icon: UserRoundCheck,
+    fields: ['epic'],
+    optional: true
+  },
+  ration: {
+    type: 'ration',
+    scanQuestion: 'assist.card.scan.ration',
+    offerQuestion: 'assist.card.offer.ration',
+    label: 'assist.card.label.ration',
+    help: 'assist.card.help.ration',
+    icon: Utensils,
+    fields: ['ration_card'],
+    optional: true
+  },
+  bank: {
+    type: 'bank',
+    scanQuestion: 'assist.card.scan.bank',
+    offerQuestion: 'assist.card.offer.bank',
+    label: 'assist.card.label.bank',
+    help: 'assist.card.help.bank',
+    icon: Landmark,
+    fields: ['bank_name', 'bank_account', 'bank_ifsc'],
+    optional: true
+  }
+};
 
 const assistGenderChoices: AssistGenderChoice[] = [
   { label: 'choice.male', value: 'm', icon: UserRound },
@@ -157,24 +254,6 @@ const schemeChoices: AssistChoice[] = [
   { label: 'choice.schemePension', value: 'Pension', icon: Home },
   { label: 'choice.schemeHealth', value: 'Health support', icon: HeartPulse },
   { label: 'choice.schemeOther', value: 'Other', icon: HandHeart }
-];
-
-const hofAssistScreens: AssistScreen[] = [
-  { kind: 'photo', question: 'assist.photo.title' },
-  { kind: 'text', question: 'assist.name', field: 'hof_name' },
-  { kind: 'date', question: 'assist.dob', field: 'hof_dob' },
-  { kind: 'gender', question: 'assist.gender', owner: 'hof' },
-  { kind: 'text', question: 'assist.aadhaar', field: 'hof_aadhaar', inputMode: 'numeric' },
-  { kind: 'text', question: 'assist.mobile', field: 'hof_mobile', inputMode: 'tel' },
-  { kind: 'text', question: 'assist.address', field: 'hof_address', multiline: true },
-  {
-    kind: 'choice',
-    question: 'assist.employment',
-    field: 'hof_employment_status',
-    choices: employmentChoices
-  },
-  { kind: 'choice', question: 'assist.education', field: 'hof_education', choices: educationChoices },
-  { kind: 'choice', question: 'assist.scheme', field: 'hof_scheme', choices: schemeChoices }
 ];
 
 function getInitialMode(): UiMode {
@@ -458,25 +537,27 @@ function AssistFlow({
   generatePdf,
   downloadPdf
 }: FlowProps) {
-  const [screenIndex, setScreenIndex] = useState(0);
+  const [currentScreen, setCurrentScreen] = useState<AssistScreen>(() => scanCardScreen('hof', 'aadhaar'));
+  const [history, setHistory] = useState<AssistHistoryEntry[]>([]);
+  const [queuedScreens, setQueuedScreens] = useState<AssistScreen[]>([]);
   const [memberCount, setMemberCount] = useState(0);
   const [muted, setMuted] = useState(false);
   const [motionApi, setMotionApi] = useState<MotionApi | null>(null);
+  const [uploadContext, setUploadContext] = useState<{ key: string; owner: AssistOwner } | null>(null);
+  const [cardDocumentIds, setCardDocumentIds] = useState<Record<string, string[]>>({});
+  const [readingCard, setReadingCard] = useState<{ key: string; owner: AssistOwner; card: CardType } | null>(null);
   const reducedMotion = usePrefersReducedMotion();
-  const screens = useMemo(() => buildAssistScreens(memberCount), [memberCount]);
-  const activeIndex = Math.min(screenIndex, screens.length - 1);
-  const screen = screens[activeIndex];
-  const question = t(screen.question);
-  const hasCompletedDocuments = documents.some((doc) => doc.status === 'complete');
+  const question = t(currentScreen.question);
+  const activeCardKey = currentScreen.kind === 'scan-card' ? cardInstanceKey(currentScreen.owner, currentScreen.card) : '';
+  const activeDocumentIds = activeCardKey ? cardDocumentIds[activeCardKey] || [] : [];
+  const activeDocuments = documents.filter((doc) => activeDocumentIds.includes(doc.id));
+  const progressCurrent = history.length + 1;
+  const progressTotal = Math.max(progressCurrent + queuedScreens.length + estimateRemainingScreens(currentScreen), progressCurrent);
 
   useEffect(() => {
-    if (screenIndex > screens.length - 1) setScreenIndex(screens.length - 1);
-  }, [screenIndex, screens.length]);
-
-  useEffect(() => {
-    void speakPrompt(screen.question, question, muted);
+    void speakPrompt(currentScreen.question, question, muted);
     return () => stopSpeaking();
-  }, [muted, question, screen.question]);
+  }, [muted, question, currentScreen.question]);
 
   useEffect(() => {
     let mounted = true;
@@ -488,86 +569,159 @@ function AssistFlow({
     };
   }, []);
 
-  function goBack() {
-    setScreenIndex((current) => Math.max(0, current - 1));
-  }
-
-  function goNext() {
-    setScreenIndex((current) => Math.min(screens.length - 1, current + 1));
-  }
-
-  function handlePhotoNext() {
-    if (hasCompletedDocuments) {
-      reviewExtractedFields({ moveToAgentReview: false });
+  useEffect(() => {
+    if (!uploadContext || documents.length === 0) return;
+    setCardDocumentIds((current) => ({
+      ...current,
+      [uploadContext.key]: documents.map((doc) => doc.id)
+    }));
+    for (const doc of documents) {
+      if (doc.targetPrefix !== uploadContext.owner) updateDocumentTarget(doc.id, uploadContext.owner);
     }
-    goNext();
+  }, [documents, updateDocumentTarget, uploadContext]);
+
+  useEffect(() => {
+    if (!readingCard) return;
+    const docIds = cardDocumentIds[readingCard.key] || [];
+    const cardDocs = documents.filter((doc) => docIds.includes(doc.id));
+    if (cardDocs.length === 0 || isProcessing) return;
+
+    if (cardDocs.some((doc) => doc.status === 'complete')) {
+      reviewExtractedFields({ moveToAgentReview: false });
+      setReadingCard(null);
+      setNextScreen(confirmCardScreen(readingCard.owner, readingCard.card));
+      return;
+    }
+
+    if (cardDocs.every((doc) => doc.status === 'error')) {
+      setReadingCard(null);
+    }
+  }, [cardDocumentIds, documents, isProcessing, readingCard, reviewExtractedFields]);
+
+  function setNextScreen(nextScreen: AssistScreen, nextQueue: AssistScreen[] = []) {
+    setHistory((current) => [...current, { screen: currentScreen, queue: queuedScreens }]);
+    setCurrentScreen(nextScreen);
+    setQueuedScreens(nextQueue);
+  }
+
+  function continueTo(nextScreens: AssistScreen[]) {
+    if (nextScreens.length === 0) return;
+    setNextScreen(nextScreens[0], nextScreens.slice(1));
+  }
+
+  function continueQueued() {
+    if (queuedScreens.length > 0) {
+      setNextScreen(queuedScreens[0], queuedScreens.slice(1));
+    }
+  }
+
+  function goBack() {
+    setHistory((current) => {
+      const previous = current.at(-1);
+      if (previous) {
+        setCurrentScreen(previous.screen);
+        setQueuedScreens(previous.queue);
+      }
+      return previous ? current.slice(0, -1) : current;
+    });
+  }
+
+  function handleCardFileSelection(event: ChangeEvent<HTMLInputElement>) {
+    if (currentScreen.kind !== 'scan-card') return;
+    setUploadContext({ key: cardInstanceKey(currentScreen.owner, currentScreen.card), owner: currentScreen.owner });
+    handleFileSelection(event);
+  }
+
+  async function readCurrentCard() {
+    if (currentScreen.kind !== 'scan-card' || activeDocuments.length === 0) return;
+    const owner = currentScreen.owner;
+    const targetDocs = activeDocuments.map((doc) => ({ ...doc, targetPrefix: owner }));
+    for (const doc of activeDocuments) {
+      if (doc.targetPrefix !== owner) updateDocumentTarget(doc.id, owner);
+    }
+    setReadingCard({ key: cardInstanceKey(owner, currentScreen.card), owner, card: currentScreen.card });
+    await startOcr(targetDocs);
+  }
+
+  function acceptCardValues() {
+    if (currentScreen.kind !== 'confirm-card') return;
+    const missing = manualScreensForCard(currentScreen.owner, currentScreen.card, userData);
+    continueTo([
+      ...missing,
+      ...screensAfterCard(currentScreen.owner, currentScreen.card, userData, memberCount)
+    ]);
+  }
+
+  function answerOptionalCard(hasCard: boolean) {
+    if (currentScreen.kind !== 'offer-card') return;
+    if (hasCard) {
+      setNextScreen(scanCardScreen(currentScreen.owner, currentScreen.card));
+      return;
+    }
+    continueTo(screensAfterCard(currentScreen.owner, currentScreen.card, userData, memberCount));
+  }
+
+  function completeManual() {
+    continueQueued();
   }
 
   function handleAddMember(addMember: boolean) {
     if (addMember && memberCount < 5) {
-      setMemberCount((current) => Math.min(5, current + 1));
+      const nextMemberNumber = memberCount + 1;
+      setMemberCount(nextMemberNumber);
+      setNextScreen(scanCardScreen(`member${nextMemberNumber}` as MemberOwner, 'aadhaar'));
       return;
     }
 
-    goNext();
+    setNextScreen({ kind: 'review', question: 'assist.review.title' });
   }
 
   async function handleReviewConfirm() {
     const generated = await generatePdf();
-    if (generated) goNext();
+    if (generated) {
+      setNextScreen(
+        { kind: 'preview', question: 'assist.preview.title' },
+        [{ kind: 'download', question: 'assist.download.title' }]
+      );
+    }
   }
 
   function renderScreen() {
-    switch (screen.kind) {
-      case 'photo':
+    switch (currentScreen.kind) {
+      case 'offer-card':
         return (
-          <AssistPhotoStep
-            documents={documents}
+          <AssistOfferCardStep
+            card={currentScreen.card}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            onAnswer={answerOptionalCard}
+          />
+        );
+      case 'scan-card':
+        return (
+          <AssistScanCardStep
+            card={currentScreen.card}
+            documents={activeDocuments}
             isProcessing={isProcessing}
             motionApi={motionApi}
             reducedMotion={reducedMotion}
-            onFileSelection={handleFileSelection}
-            onTargetChange={updateDocumentTarget}
-            onReadDocuments={() => void startOcr()}
+            onFileSelection={handleCardFileSelection}
+            onReadDocuments={() => void readCurrentCard()}
             onRetry={() => void retryFailedOcr()}
           />
         );
-      case 'date':
+      case 'confirm-card':
         return (
-          <AssistDateStep
-            field={screen.field}
-            value={userData[screen.field]}
-            onUpdate={(value) => updateField(screen.field, value)}
+          <AssistConfirmCardStep
+            owner={currentScreen.owner}
+            card={currentScreen.card}
+            userData={userData}
+            onUpdateField={updateField}
+            onUpdateGender={updateGender}
           />
         );
-      case 'text':
-        return (
-          <AssistTextStep
-            screen={screen}
-            value={userData[screen.field]}
-            onUpdate={(value) => updateField(screen.field, value)}
-          />
-        );
-      case 'gender':
-        return (
-          <AssistGenderStep
-            owner={screen.owner}
-            selected={selectedGender(screen.owner, userData)}
-            motionApi={motionApi}
-            reducedMotion={reducedMotion}
-            onChange={(selected) => updateGender(screen.owner, selected)}
-          />
-        );
-      case 'choice':
-        return (
-          <AssistChoiceStep
-            choices={screen.choices}
-            selectedValue={userData[screen.field]}
-            motionApi={motionApi}
-            reducedMotion={reducedMotion}
-            onSelect={(value) => updateField(screen.field, value)}
-          />
-        );
+      case 'manual':
+        return renderManualScreen(currentScreen.manual);
       case 'add-member':
         return <AssistAddMemberStep motionApi={motionApi} reducedMotion={reducedMotion} onAnswer={handleAddMember} />;
       case 'review':
@@ -579,8 +733,52 @@ function AssistFlow({
     }
   }
 
+  function renderManualScreen(manual: AssistManual) {
+    switch (manual.kind) {
+      case 'date':
+        return (
+          <AssistDateStep
+            field={manual.field}
+            value={userData[manual.field]}
+            ariaLabel={t(manual.question)}
+            onUpdate={(value) => updateField(manual.field, value)}
+          />
+        );
+      case 'text':
+        return (
+          <AssistTextStep
+            manual={manual}
+            value={userData[manual.field]}
+            onUpdate={(value) => updateField(manual.field, value)}
+          />
+        );
+      case 'gender':
+        return (
+          <AssistGenderStep
+            owner={manual.owner}
+            selected={selectedGender(manual.owner, userData)}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            onChange={(selected) => updateGender(manual.owner, selected)}
+          />
+        );
+      case 'choice':
+        return (
+          <AssistChoiceStep
+            choices={manual.choices}
+            selectedValue={userData[manual.field]}
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            onSelect={(value) => updateField(manual.field, value)}
+          />
+        );
+    }
+  }
+
   function renderActions() {
-    if (screen.kind === 'add-member') {
+    if (currentScreen.kind === 'offer-card') return null;
+
+    if (currentScreen.kind === 'add-member') {
       return (
         <div className="assist-nav">
           <MotionButton
@@ -589,7 +787,7 @@ function AssistFlow({
             className="assist-back"
             type="button"
             onClick={goBack}
-            disabled={activeIndex === 0}
+            disabled={history.length === 0}
           >
             <ArrowLeft size={22} />
             {t('assist.back')}
@@ -598,7 +796,44 @@ function AssistFlow({
       );
     }
 
-    if (screen.kind === 'review') {
+    if (currentScreen.kind === 'confirm-card') {
+      return (
+        <div className="assist-nav">
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
+            <ArrowLeft size={22} />
+            {t('assist.review.edit')}
+          </MotionButton>
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-next" type="button" onClick={acceptCardValues}>
+            <Check size={22} />
+            {t('assist.card.confirm.correct')}
+          </MotionButton>
+        </div>
+      );
+    }
+
+    if (currentScreen.kind === 'manual') {
+      return (
+        <div className="assist-nav">
+          <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
+            <ArrowLeft size={22} />
+            {t('assist.back')}
+          </MotionButton>
+          <MotionButton
+            motionApi={motionApi}
+            reducedMotion={reducedMotion}
+            className="assist-next"
+            type="button"
+            onClick={completeManual}
+            disabled={!isManualComplete(currentScreen.manual, userData)}
+          >
+            <ArrowRight size={22} />
+            {t('assist.next')}
+          </MotionButton>
+        </div>
+      );
+    }
+
+    if (currentScreen.kind === 'review') {
       return (
         <div className="assist-nav">
           <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
@@ -620,7 +855,7 @@ function AssistFlow({
       );
     }
 
-    if (screen.kind === 'download') {
+    if (currentScreen.kind === 'download') {
       return (
         <div className="assist-nav">
           <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-back" type="button" onClick={goBack}>
@@ -643,7 +878,7 @@ function AssistFlow({
           className="assist-back"
           type="button"
           onClick={goBack}
-          disabled={activeIndex === 0}
+          disabled={history.length === 0}
         >
           <ArrowLeft size={22} />
           {t('assist.back')}
@@ -653,11 +888,11 @@ function AssistFlow({
           reducedMotion={reducedMotion}
           className="assist-next"
           type="button"
-          onClick={screen.kind === 'photo' ? handlePhotoNext : goNext}
-          disabled={isProcessing}
+          onClick={currentScreen.kind === 'scan-card' ? () => void readCurrentCard() : continueQueued}
+          disabled={currentScreen.kind === 'scan-card' ? activeDocuments.length === 0 || isProcessing : false}
         >
-          {screen.kind === 'photo' && isProcessing ? <Loader2 className="spin" size={22} /> : <ArrowRight size={22} />}
-          {screen.kind === 'photo' && hasCompletedDocuments ? t('assist.photo.next') : t('assist.next')}
+          {currentScreen.kind === 'scan-card' && isProcessing ? <Loader2 className="spin" size={22} /> : <ArrowRight size={22} />}
+          {currentScreen.kind === 'scan-card' && isProcessing ? t('assist.photo.reading') : t('assist.next')}
         </MotionButton>
       </div>
     );
@@ -674,8 +909,8 @@ function AssistFlow({
       </header>
 
       <AssistProgress
-        current={activeIndex + 1}
-        total={screens.length}
+        current={progressCurrent}
+        total={progressTotal}
         motionApi={motionApi}
         reducedMotion={reducedMotion}
       />
@@ -687,7 +922,7 @@ function AssistFlow({
             reducedMotion={reducedMotion}
             className="assist-listen"
             type="button"
-            onClick={() => void speakPrompt(screen.question, question, muted)}
+            onClick={() => void speakPrompt(currentScreen.question, question, muted)}
           >
             <Volume2 size={20} />
             {t('assist.listen')}
@@ -721,7 +956,7 @@ function AssistFlow({
           </section>
         )}
 
-        <MotionScreen motionApi={motionApi} reducedMotion={reducedMotion} screenKey={`${screen.kind}-${activeIndex}-${screen.question}`}>
+        <MotionScreen motionApi={motionApi} reducedMotion={reducedMotion} screenKey={`${currentScreen.kind}-${progressCurrent}-${currentScreen.question}`}>
           {renderScreen()}
           {renderActions()}
         </MotionScreen>
@@ -730,22 +965,51 @@ function AssistFlow({
   );
 }
 
-function AssistPhotoStep({
+function AssistOfferCardStep({
+  card,
+  motionApi,
+  reducedMotion,
+  onAnswer
+}: {
+  card: CardType;
+  motionApi: MotionApi | null;
+  reducedMotion: boolean;
+  onAnswer: (hasCard: boolean) => void;
+}) {
+  return (
+    <div className="assist-card-prompt">
+      <CardIllustration card={card} />
+      <p>{t(cardConfigs[card].help)}</p>
+      <div className="assist-inline-actions">
+        <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-big-button primary" type="button" onClick={() => onAnswer(true)}>
+          <Camera size={28} />
+          {t('assist.card.have')}
+        </MotionButton>
+        <MotionButton motionApi={motionApi} reducedMotion={reducedMotion} className="assist-big-button" type="button" onClick={() => onAnswer(false)}>
+          <ArrowRight size={28} />
+          {t('assist.card.skip')}
+        </MotionButton>
+      </div>
+    </div>
+  );
+}
+
+function AssistScanCardStep({
+  card,
   documents,
   isProcessing,
   motionApi,
   reducedMotion,
   onFileSelection,
-  onTargetChange,
   onReadDocuments,
   onRetry
 }: {
+  card: CardType;
   documents: OcrDocument[];
   isProcessing: boolean;
   motionApi: MotionApi | null;
   reducedMotion: boolean;
   onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
-  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
   onReadDocuments: () => void;
   onRetry: () => void;
 }) {
@@ -754,13 +1018,14 @@ function AssistPhotoStep({
 
   return (
     <div className="assist-photo-step">
-      <p>{t('assist.photo.help')}</p>
+      <CardIllustration card={card} />
+      <p>{t(cardConfigs[card].help)}</p>
       <MotionLabel motionApi={motionApi} reducedMotion={reducedMotion} className="assist-upload">
         <Camera size={26} />
         {t('assist.photo.add')}
-        <input type="file" accept="image/*" capture="environment" multiple onChange={onFileSelection} />
+        <input type="file" accept="image/*" capture="environment" onChange={onFileSelection} />
       </MotionLabel>
-      <AssistDocumentList documents={documents} motionApi={motionApi} reducedMotion={reducedMotion} onTargetChange={onTargetChange} />
+      <AssistCurrentDocumentPreview documents={documents} />
       <div className="assist-inline-actions">
         <MotionButton
           motionApi={motionApi}
@@ -791,44 +1056,21 @@ function AssistPhotoStep({
   );
 }
 
-function AssistDocumentList({
-  documents,
-  motionApi,
-  reducedMotion,
-  onTargetChange
-}: {
-  documents: OcrDocument[];
-  motionApi: MotionApi | null;
-  reducedMotion: boolean;
-  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
-}) {
+function AssistCurrentDocumentPreview({ documents }: { documents: OcrDocument[] }) {
   if (documents.length === 0) {
     return <div className="assist-empty">{t('assist.photo.empty')}</div>;
   }
 
   return (
-    <section className="assist-document-list" aria-label={t('assist.whoseCard')}>
+    <section className="assist-document-list" aria-label={t('assist.card.uploaded')}>
       {documents.map((doc) => (
         <article className="assist-document" key={doc.id}>
           <img src={doc.previewUrl} alt="" />
           <div>
-            <strong>{t('assist.whoseCard')}</strong>
+            <strong>{t('assist.card.uploaded')}</strong>
             <span>{assistStatusLabel(doc)}</span>
             {doc.status === 'processing' && <progress value={doc.progress} max="100" />}
-            <div className="assist-target-grid">
-              {assistTargetOptions.map((option) => (
-                <MotionButton
-                  motionApi={motionApi}
-                  reducedMotion={reducedMotion}
-                  key={option.value}
-                  type="button"
-                  className={doc.targetPrefix === option.value ? 'assist-target active' : 'assist-target'}
-                  onClick={() => onTargetChange(doc.id, option.value)}
-                >
-                  {t(option.label)}
-                </MotionButton>
-              ))}
-            </div>
+            {doc.error && <p className="inline-error">{t('assist.problem')}</p>}
           </div>
         </article>
       ))}
@@ -836,20 +1078,122 @@ function AssistDocumentList({
   );
 }
 
+function AssistConfirmCardStep({
+  owner,
+  card,
+  userData,
+  onUpdateField,
+  onUpdateGender
+}: {
+  owner: AssistOwner;
+  card: CardType;
+  userData: UserData;
+  onUpdateField: (field: FieldName, value: string) => void;
+  onUpdateGender: (owner: AssistOwner, selected: 'm' | 'f' | 'other') => void;
+}) {
+  const foundFields = cardFieldManuals(owner, card).filter((manual) => isManualComplete(manual, userData));
+
+  return (
+    <div className="assist-confirm">
+      <CardIllustration card={card} />
+      {foundFields.length === 0 ? (
+        <div className="assist-empty">{t('assist.card.confirm.empty')}</div>
+      ) : (
+        <section className="assist-found-list" aria-label={t('assist.card.confirm.title')}>
+          {foundFields.map((manual) => (
+            <ConfirmEditableRow
+              key={manual.id}
+              manual={manual}
+              userData={userData}
+              onUpdateField={onUpdateField}
+              onUpdateGender={onUpdateGender}
+            />
+          ))}
+        </section>
+      )}
+    </div>
+  );
+}
+
+function ConfirmEditableRow({
+  manual,
+  userData,
+  onUpdateField,
+  onUpdateGender
+}: {
+  manual: AssistManual;
+  userData: UserData;
+  onUpdateField: (field: FieldName, value: string) => void;
+  onUpdateGender: (owner: AssistOwner, selected: 'm' | 'f' | 'other') => void;
+}) {
+  if (manual.kind === 'gender') {
+    return (
+      <div className="assist-found-row tall">
+        <span>{t(manual.label)}</span>
+        <AssistGenderStep
+          owner={manual.owner}
+          selected={selectedGender(manual.owner, userData)}
+          motionApi={null}
+          reducedMotion
+          onChange={(selected) => onUpdateGender(manual.owner, selected)}
+        />
+      </div>
+    );
+  }
+
+  if (manual.kind === 'choice') {
+    return (
+      <div className="assist-found-row">
+        <span>{t(manual.label)}</span>
+        <strong>{userData[manual.field].trim() || '-'}</strong>
+      </div>
+    );
+  }
+
+  const isText = manual.kind === 'text';
+
+  return (
+    <label className="assist-found-row">
+      <span>{t(manual.label)}</span>
+      {isText && manual.multiline ? (
+        <textarea value={userData[manual.field]} rows={3} onChange={(event) => onUpdateField(manual.field, event.target.value)} />
+      ) : (
+        <input
+          value={userData[manual.field]}
+          inputMode={isText ? manual.inputMode : undefined}
+          pattern={isText && (manual.inputMode === 'numeric' || manual.inputMode === 'tel') ? '[0-9]*' : undefined}
+          onChange={(event) => onUpdateField(manual.field, event.target.value)}
+        />
+      )}
+    </label>
+  );
+}
+
+function CardIllustration({ card }: { card: CardType }) {
+  const config = cardConfigs[card];
+  const Icon = config.icon;
+  return (
+    <div className={`assist-card-illustration card-${card}`} aria-label={t(config.label)}>
+      <Icon size={64} />
+      <strong>{t(config.label)}</strong>
+    </div>
+  );
+}
+
 function AssistTextStep({
-  screen,
+  manual,
   value,
   onUpdate
 }: {
-  screen: Extract<AssistScreen, { kind: 'text' }>;
+  manual: Extract<AssistManual, { kind: 'text' }>;
   value: string;
   onUpdate: (value: string) => void;
 }) {
-  const isNumberLike = screen.inputMode === 'numeric' || screen.inputMode === 'tel';
+  const isNumberLike = manual.inputMode === 'numeric' || manual.inputMode === 'tel';
 
   return (
     <label className="assist-input-wrap">
-      {screen.multiline ? (
+      {manual.multiline ? (
         <textarea
           className="assist-input"
           value={value}
@@ -861,7 +1205,7 @@ function AssistTextStep({
         <input
           className="assist-input"
           value={value}
-          inputMode={screen.inputMode}
+          inputMode={manual.inputMode}
           pattern={isNumberLike ? '[0-9]*' : undefined}
           placeholder={t('assist.fill.empty')}
           onChange={(event) => onUpdate(event.target.value)}
@@ -874,10 +1218,12 @@ function AssistTextStep({
 function AssistDateStep({
   field,
   value,
+  ariaLabel,
   onUpdate
 }: {
   field: FieldName;
   value: string;
+  ariaLabel?: string;
   onUpdate: (value: string) => void;
 }) {
   const parts = parseDateParts(value);
@@ -888,7 +1234,7 @@ function AssistDateStep({
   }
 
   return (
-    <div className="assist-date-picker" aria-label={t('assist.dob')}>
+    <div className="assist-date-picker" aria-label={ariaLabel || t('assist.dob')}>
       <DateSelect
         label={t('assist.date.day')}
         value={parts.day}
@@ -1048,7 +1394,7 @@ function AssistReviewStep({ userData, memberCount }: { userData: UserData; membe
           <p>{t('assist.noMembers')}</p>
         ) : (
           Array.from({ length: memberCount }, (_, index) => index + 1).map((memberNumber) => {
-            const owner = `member${memberNumber}` as `member${number}`;
+            const owner = `member${memberNumber}` as MemberOwner;
             return (
               <div className="assist-member-summary" key={owner}>
                 <h3>{t(`assist.target.member${memberNumber}` as LocaleKey)}</h3>
@@ -1302,57 +1648,257 @@ function formatDateParts(parts: { day: string; month: string; year: string }): s
   return [day, month, year].join('/');
 }
 
-function buildAssistScreens(memberCount: number): AssistScreen[] {
-  const screens: AssistScreen[] = [...hofAssistScreens];
-
-  for (let memberNumber = 1; memberNumber <= memberCount; memberNumber += 1) {
-    const owner = `member${memberNumber}` as `member${number}`;
-    screens.push(
-      { kind: 'text', question: 'assist.member.name', field: memberField(owner, 'name') },
-      {
-        kind: 'choice',
-        question: 'assist.member.relation',
-        field: memberField(owner, 'relation'),
-        choices: relationChoices
-      },
-      { kind: 'gender', question: 'assist.member.gender', owner },
-      {
-        kind: 'date',
-        question: 'assist.member.dob',
-        field: memberField(owner, 'dob')
-      },
-      {
-        kind: 'text',
-        question: 'assist.member.aadhaar',
-        field: memberField(owner, 'aadhaar'),
-        inputMode: 'numeric'
-      },
-      {
-        kind: 'text',
-        question: 'assist.member.mobile',
-        field: memberField(owner, 'mobile'),
-        inputMode: 'tel'
-      }
-    );
-  }
-
-  if (memberCount < 5) {
-    screens.push({
-      kind: 'add-member',
-      question: memberCount === 0 ? 'assist.member.add' : 'assist.member.more'
-    });
-  }
-
-  screens.push(
-    { kind: 'review', question: 'assist.review.title' },
-    { kind: 'preview', question: 'assist.preview.title' },
-    { kind: 'download', question: 'assist.download.title' }
-  );
-
-  return screens;
+function scanCardScreen(owner: AssistOwner, card: CardType): AssistScreen {
+  return { kind: 'scan-card', owner, card, question: cardConfigs[card].scanQuestion };
 }
 
-function memberField(owner: `member${number}`, suffix: MemberFieldSuffix): FieldName {
+function offerCardScreen(owner: AssistOwner, card: CardType): AssistScreen {
+  const question = cardConfigs[card].offerQuestion || cardConfigs[card].scanQuestion;
+  return { kind: 'offer-card', owner, card, question };
+}
+
+function confirmCardScreen(owner: AssistOwner, card: CardType): AssistScreen {
+  return { kind: 'confirm-card', owner, card, question: 'assist.card.confirm.title' };
+}
+
+function cardInstanceKey(owner: AssistOwner, card: CardType): string {
+  return `${owner}-${card}`;
+}
+
+function cardFieldManuals(owner: AssistOwner, card: CardType): AssistManual[] {
+  return cardConfigs[card].fields.map((suffix) => manualForField(owner, suffix));
+}
+
+function manualScreensForCard(owner: AssistOwner, card: CardType, userData: UserData): AssistScreen[] {
+  return cardFieldManuals(owner, card)
+    .filter((manual) => !isManualComplete(manual, userData))
+    .map((manual) => ({ kind: 'manual', manual, question: manual.question }));
+}
+
+function screensAfterCard(
+  owner: AssistOwner,
+  card: CardType,
+  userData: UserData,
+  memberCount: number
+): AssistScreen[] {
+  const nextCard = cardOrder[cardOrder.indexOf(card) + 1];
+  if (nextCard) {
+    return [cardConfigs[nextCard].optional ? offerCardScreen(owner, nextCard) : scanCardScreen(owner, nextCard)];
+  }
+
+  return [...humanManualScreens(owner, userData), nextPersonScreen(memberCount)];
+}
+
+function humanManualScreens(owner: AssistOwner, userData: UserData): AssistScreen[] {
+  const suffixes: AssistFieldSuffix[] =
+    owner === 'hof'
+      ? ['employment_status', 'education', 'scheme']
+      : ['relation', 'employment_status', 'education', 'scheme'];
+
+  return suffixes
+    .map((suffix) => manualForField(owner, suffix))
+    .filter((manual) => !isManualComplete(manual, userData))
+    .map((manual) => ({ kind: 'manual', manual, question: manual.question }));
+}
+
+function nextPersonScreen(memberCount: number): AssistScreen {
+  if (memberCount >= 5) return { kind: 'review', question: 'assist.review.title' };
+  return {
+    kind: 'add-member',
+    question: memberCount === 0 ? 'assist.member.add' : 'assist.member.more'
+  };
+}
+
+function manualForField(owner: AssistOwner, suffix: AssistFieldSuffix): AssistManual {
+  const id = `${owner}-${suffix}`;
+
+  switch (suffix) {
+    case 'name':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.name' : 'assist.member.name',
+        label: 'summary.name',
+        field: ownerField(owner, suffix)
+      };
+    case 'dob':
+      return {
+        kind: 'date',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.dob' : 'assist.member.dob',
+        label: 'summary.dob',
+        field: ownerField(owner, suffix)
+      };
+    case 'gender':
+      return {
+        kind: 'gender',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.gender' : 'assist.member.gender',
+        label: 'summary.gender'
+      };
+    case 'aadhaar':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.aadhaar' : 'assist.member.aadhaar',
+        label: 'summary.aadhaar',
+        field: ownerField(owner, suffix),
+        inputMode: 'numeric'
+      };
+    case 'address':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.address' : 'assist.member.address',
+        label: 'summary.address',
+        field: ownerField(owner, suffix),
+        multiline: true
+      };
+    case 'pan':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.pan',
+        label: 'summary.pan',
+        field: ownerField(owner, suffix)
+      };
+    case 'epic':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.epic',
+        label: 'summary.epic',
+        field: ownerField(owner, suffix)
+      };
+    case 'ration_card':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.ration',
+        label: 'summary.ration',
+        field: ownerField(owner, suffix)
+      };
+    case 'bank_name':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.bankName',
+        label: 'summary.bankName',
+        field: ownerField(owner, suffix)
+      };
+    case 'bank_account':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.bankAccount',
+        label: 'summary.bankAccount',
+        field: ownerField(owner, suffix),
+        inputMode: 'numeric'
+      };
+    case 'bank_ifsc':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: 'assist.field.bankIfsc',
+        label: 'summary.bankIfsc',
+        field: ownerField(owner, suffix)
+      };
+    case 'relation':
+      return {
+        kind: 'choice',
+        id,
+        owner,
+        question: 'assist.member.relation',
+        label: 'summary.relation',
+        field: ownerField(owner, suffix),
+        choices: relationChoices
+      };
+    case 'employment_status':
+      return {
+        kind: 'choice',
+        id,
+        owner,
+        question: 'assist.employment',
+        label: 'summary.employment',
+        field: ownerField(owner, suffix),
+        choices: employmentChoices
+      };
+    case 'education':
+      return {
+        kind: 'choice',
+        id,
+        owner,
+        question: 'assist.education',
+        label: 'summary.education',
+        field: ownerField(owner, suffix),
+        choices: educationChoices
+      };
+    case 'scheme':
+      return {
+        kind: 'choice',
+        id,
+        owner,
+        question: 'assist.scheme',
+        label: 'summary.scheme',
+        field: ownerField(owner, suffix),
+        choices: schemeChoices
+      };
+    case 'mobile':
+      return {
+        kind: 'text',
+        id,
+        owner,
+        question: owner === 'hof' ? 'assist.mobile' : 'assist.member.mobile',
+        label: 'summary.mobile',
+        field: ownerField(owner, suffix),
+        inputMode: 'tel'
+      };
+  }
+}
+
+function ownerField(owner: AssistOwner, suffix: MemberFieldSuffix): FieldName {
+  return owner === 'hof' ? contractField(`hof_${suffix}`) : memberField(owner, suffix);
+}
+
+function isManualComplete(manual: AssistManual, userData: UserData): boolean {
+  if (manual.kind === 'gender') return selectedGender(manual.owner, userData) !== '';
+  return userData[manual.field].trim().length > 0;
+}
+
+function estimateRemainingScreens(screen: AssistScreen): number {
+  if (screen.kind === 'offer-card') {
+    const cardsAfter = Math.max(0, cardOrder.length - cardOrder.indexOf(screen.card) - 1);
+    return 2 + cardsAfter * 2 + 5;
+  }
+
+  if (screen.kind === 'scan-card') {
+    const cardsAfter = Math.max(0, cardOrder.length - cardOrder.indexOf(screen.card) - 1);
+    return 1 + cardsAfter * 2 + 5;
+  }
+
+  if (screen.kind === 'confirm-card') {
+    const cardsAfter = Math.max(0, cardOrder.length - cardOrder.indexOf(screen.card) - 1);
+    return cardsAfter * 2 + 5;
+  }
+
+  if (screen.kind === 'add-member') return 3;
+  if (screen.kind === 'review') return 2;
+  if (screen.kind === 'preview') return 1;
+  return 0;
+}
+
+function memberField(owner: MemberOwner, suffix: MemberFieldSuffix): FieldName {
   return contractField(`${owner}_${suffix}`);
 }
 

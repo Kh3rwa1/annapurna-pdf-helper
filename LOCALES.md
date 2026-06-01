@@ -32,6 +32,31 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `assist.photo.next`
 - `assist.photo.empty`
 - `assist.whoseCard`
+- `assist.card.scan.aadhaar`
+- `assist.card.scan.pan`
+- `assist.card.scan.epic`
+- `assist.card.scan.ration`
+- `assist.card.scan.bank`
+- `assist.card.offer.pan`
+- `assist.card.offer.epic`
+- `assist.card.offer.ration`
+- `assist.card.offer.bank`
+- `assist.card.label.aadhaar`
+- `assist.card.label.pan`
+- `assist.card.label.epic`
+- `assist.card.label.ration`
+- `assist.card.label.bank`
+- `assist.card.help.aadhaar`
+- `assist.card.help.pan`
+- `assist.card.help.epic`
+- `assist.card.help.ration`
+- `assist.card.help.bank`
+- `assist.card.have`
+- `assist.card.skip`
+- `assist.card.uploaded`
+- `assist.card.confirm.title`
+- `assist.card.confirm.empty`
+- `assist.card.confirm.correct`
 - `assist.card.ready`
 - `assist.card.reading`
 - `assist.card.done`
@@ -58,7 +83,14 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 - `assist.member.dob`
 - `assist.member.aadhaar`
 - `assist.member.mobile`
+- `assist.member.address`
 - `assist.member.more`
+- `assist.field.pan`
+- `assist.field.epic`
+- `assist.field.ration`
+- `assist.field.bankName`
+- `assist.field.bankAccount`
+- `assist.field.bankIfsc`
 - `assist.date.day`
 - `assist.date.month`
 - `assist.date.year`
@@ -101,6 +133,22 @@ Keep Bengali strings plain and low-literacy friendly. Avoid developer terms in A
 
 - `summary.name`
 - `summary.dob`
+- `summary.gender`
 - `summary.aadhaar`
+- `summary.mobile`
+- `summary.pan`
+- `summary.epic`
+- `summary.ration`
+- `summary.bankName`
+- `summary.bankAccount`
+- `summary.bankIfsc`
+- `summary.relation`
+- `summary.employment`
+- `summary.education`
+- `summary.scheme`
 - `summary.address`
 - `summary.members`
+
+## Assist Flow Order
+
+Assist Mode is document-first. For each person, it asks for an Aadhaar photo, confirms what was read, asks by hand only for Aadhaar details that stayed empty, offers optional PAN, voter, ration, and bank passbook scans, then asks only the remaining family/work/education/help choices. The guided path already knows whose card is being scanned, so it does not show the person selector unless Agent Mode is used.
