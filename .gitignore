@@ -1,0 +1,11 @@
+node_modules/
+dist/
+frontend/tsconfig.tsbuildinfo
+frontend/public/tessdata/
+frontend/public/tesseract/
+frontend/public/tesseract-core/
+output/
+.env
+.env.local
+.DS_Store
+npm-debug.log*
