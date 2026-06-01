@@ -8,6 +8,13 @@ const publicTessdata = join(frontendRoot, 'public', 'tessdata');
 const publicTesseract = join(frontendRoot, 'public', 'tesseract');
 const publicCore = join(frontendRoot, 'public', 'tesseract-core');
 const nodeModules = join(frontendRoot, '..', 'node_modules');
+const requiredOutputs = [
+  join(publicTessdata, 'eng.traineddata.gz'),
+  join(publicTessdata, 'ben.traineddata.gz'),
+  join(publicTesseract, 'worker.min.js'),
+  join(publicCore, 'tesseract-core-simd-lstm.wasm.js')
+];
+const missingSources = [];
 
 mkdirSync(publicTessdata, { recursive: true });
 mkdirSync(publicTesseract, { recursive: true });
@@ -15,7 +22,7 @@ mkdirSync(publicTesseract, { recursive: true });
 for (const lang of ['eng', 'ben']) {
   const source = findFile(join(nodeModules, '@tesseract.js-data', lang), `${lang}.traineddata.gz`);
   if (!source) {
-    console.warn(`Could not find ${lang}.traineddata.gz. Run npm install before building.`);
+    missingSources.push(`${lang}.traineddata.gz`);
     continue;
   }
 
@@ -26,7 +33,7 @@ const workerSource = join(nodeModules, 'tesseract.js', 'dist', 'worker.min.js');
 if (existsSync(workerSource)) {
   cpSync(workerSource, join(publicTesseract, 'worker.min.js'));
 } else {
-  console.warn('Could not find tesseract.js worker.min.js. Run npm install before building.');
+  missingSources.push('tesseract.js/dist/worker.min.js');
 }
 
 const coreSource = join(nodeModules, 'tesseract.js-core');
@@ -34,7 +41,21 @@ if (existsSync(coreSource)) {
   rmSync(publicCore, { recursive: true, force: true });
   cpSync(coreSource, publicCore, { recursive: true });
 } else {
-  console.warn('Could not find tesseract.js-core. Run npm install before building.');
+  missingSources.push('tesseract.js-core');
+}
+
+const missingOutputs = requiredOutputs.filter((output) => !existsSync(output));
+if (missingSources.length || missingOutputs.length) {
+  throw new Error(
+    [
+      'Missing offline OCR assets.',
+      missingSources.length ? `Missing sources: ${missingSources.join(', ')}` : '',
+      missingOutputs.length ? `Missing copied outputs: ${missingOutputs.join(', ')}` : '',
+      'Run npm install from the workspace root and try again.'
+    ]
+      .filter(Boolean)
+      .join(' ')
+  );
 }
 
 function findFile(start, filename) {

@@ -14,7 +14,7 @@ import {
 import { FIELD_NAMES, createEmptyUserData, type FieldName, type UserData } from './data/fieldNames';
 import { createFilledPdf } from './lib/pdfFill';
 import { parseOcrText, runOcrForDocument } from './lib/ocr';
-import type { AppStep, OcrDocument } from './types';
+import type { AppStep, OcrDocument, OcrParseResult, OcrTargetPrefix } from './types';
 
 const steps: AppStep[] = ['scan', 'ocr', 'review', 'fill', 'preview', 'download'];
 
@@ -79,6 +79,15 @@ const genderOptions = [
   { key: 'other', label: 'Other' }
 ] as const;
 
+const ocrTargetOptions: Array<{ value: OcrTargetPrefix; label: string }> = [
+  { value: 'hof', label: 'HOF' },
+  { value: 'member1', label: 'Member 1' },
+  { value: 'member2', label: 'Member 2' },
+  { value: 'member3', label: 'Member 3' },
+  { value: 'member4', label: 'Member 4' },
+  { value: 'member5', label: 'Member 5' }
+];
+
 export default function App() {
   const [step, setStep] = useState<AppStep>('scan');
   const [documents, setDocuments] = useState<OcrDocument[]>([]);
@@ -103,10 +112,11 @@ export default function App() {
     setPreviewUrl('');
     setFilledPdfBytes(null);
 
-    const nextDocs = files.map((file) => ({
+    const nextDocs = files.map((file, index) => ({
       id: `${file.name}-${file.lastModified}-${crypto.randomUUID()}`,
       file,
       previewUrl: URL.createObjectURL(file),
+      targetPrefix: ocrTargetOptions[Math.min(index, ocrTargetOptions.length - 1)].value,
       status: 'queued' as const,
       progress: 0,
       text: ''
@@ -127,7 +137,6 @@ export default function App() {
     setWarnings([]);
     setIsProcessing(true);
 
-    const completed: OcrDocument[] = [];
     let sawError = false;
 
     for (const doc of targetDocs) {
@@ -159,7 +168,6 @@ export default function App() {
           ]);
         }
 
-        completed.push(updated);
         setDocuments((current) => current.map((item) => (item.id === doc.id ? updated : item)));
       } catch (caught) {
         sawError = true;
@@ -185,10 +193,24 @@ export default function App() {
       setError('One or more scans could not be read. Retake blurry images or retry OCR.');
       return;
     }
+  }
 
-    const parsed = parseOcrText(completed.map((doc) => doc.text));
-    setUserData((current) => mergeParsedValues(current, parsed.values));
-    setWarnings((current) => [...current, ...parsed.warnings]);
+  function reviewExtractedFields() {
+    const parseableDocs = documents.filter((doc) => doc.status === 'complete' && doc.text.trim());
+    if (parseableDocs.length === 0) {
+      setError('Run OCR successfully before reviewing extracted fields.');
+      return;
+    }
+
+    const parsedDocs = parseableDocs.map((doc) => ({
+      doc,
+      parsed: parseOcrText([doc.text], doc.targetPrefix)
+    }));
+    const parseWarnings = formatParseWarnings(parsedDocs);
+
+    setUserData((current) => mergeParsedDocumentValues(current, parsedDocs));
+    setWarnings((current) => [...current, ...parseWarnings]);
+    setError('');
     setStep('review');
   }
 
@@ -199,6 +221,12 @@ export default function App() {
 
   function updateField(field: FieldName, value: string) {
     setUserData((current) => ({ ...current, [field]: value }));
+  }
+
+  function updateDocumentTarget(documentId: string, targetPrefix: OcrTargetPrefix) {
+    setDocuments((current) =>
+      current.map((doc) => (doc.id === documentId ? { ...doc, targetPrefix } : doc))
+    );
   }
 
   function updateGender(owner: 'hof' | `member${number}`, selected: 'm' | 'f' | 'other') {
@@ -306,6 +334,7 @@ export default function App() {
           <ScanPanel
             documents={documents}
             onFileSelection={handleFileSelection}
+            onTargetChange={updateDocumentTarget}
             onStartOcr={() => startOcr()}
           />
         )}
@@ -315,8 +344,9 @@ export default function App() {
             documents={documents}
             isProcessing={isProcessing}
             canReview={canReview}
+            onTargetChange={updateDocumentTarget}
             onRetry={retryFailedOcr}
-            onReview={() => setStep('review')}
+            onReview={reviewExtractedFields}
           />
         )}
 
@@ -349,10 +379,12 @@ export default function App() {
 function ScanPanel({
   documents,
   onFileSelection,
+  onTargetChange,
   onStartOcr
 }: {
   documents: OcrDocument[];
   onFileSelection: (event: ChangeEvent<HTMLInputElement>) => void;
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
   onStartOcr: () => void;
 }) {
   return (
@@ -377,7 +409,7 @@ function ScanPanel({
           Start OCR
         </button>
       </section>
-      <DocumentList documents={documents} />
+      <DocumentList documents={documents} onTargetChange={onTargetChange} />
     </div>
   );
 }
@@ -386,12 +418,14 @@ function OcrPanel({
   documents,
   isProcessing,
   canReview,
+  onTargetChange,
   onRetry,
   onReview
 }: {
   documents: OcrDocument[];
   isProcessing: boolean;
   canReview: boolean;
+  onTargetChange: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
   onRetry: () => void;
   onReview: () => void;
 }) {
@@ -404,7 +438,12 @@ function OcrPanel({
         </div>
         {isProcessing && <Loader2 className="spin" size={28} />}
       </div>
-      <DocumentList documents={documents} detailed />
+      <DocumentList
+        documents={documents}
+        detailed
+        onTargetChange={onTargetChange}
+        targetEditable={!isProcessing}
+      />
       <div className="action-row">
         <button className="secondary-action" type="button" onClick={onRetry} disabled={isProcessing}>
           <RefreshCw size={18} />
@@ -578,7 +617,17 @@ function DownloadPanel({ onPreview, onDownload }: { onPreview: () => void; onDow
   );
 }
 
-function DocumentList({ documents, detailed = false }: { documents: OcrDocument[]; detailed?: boolean }) {
+function DocumentList({
+  documents,
+  detailed = false,
+  onTargetChange,
+  targetEditable = true
+}: {
+  documents: OcrDocument[];
+  detailed?: boolean;
+  onTargetChange?: (documentId: string, targetPrefix: OcrTargetPrefix) => void;
+  targetEditable?: boolean;
+}) {
   if (documents.length === 0) {
     return <div className="empty-state">No scans added yet.</div>;
   }
@@ -591,6 +640,22 @@ function DocumentList({ documents, detailed = false }: { documents: OcrDocument[
           <div>
             <strong>{doc.file.name}</strong>
             <span>{formatBytes(doc.file.size)}</span>
+            <label className="target-field">
+              <span>Fill target</span>
+              <select
+                value={doc.targetPrefix}
+                disabled={!onTargetChange || !targetEditable}
+                onChange={(event) =>
+                  onTargetChange?.(doc.id, event.target.value as OcrTargetPrefix)
+                }
+              >
+                {ocrTargetOptions.map((option) => (
+                  <option key={option.value} value={option.value}>
+                    {option.label}
+                  </option>
+                ))}
+              </select>
+            </label>
             {detailed && (
               <>
                 <progress value={doc.progress} max="100" />
@@ -671,9 +736,34 @@ function mergeParsedValues(
 ): UserData {
   const next: UserData = { ...current };
   for (const [field, value] of Object.entries(values)) {
-    if (typeof value === 'string') next[field as FieldName] = value;
+    const fieldName = field as FieldName;
+    if (typeof value === 'string' && value.trim() && !next[fieldName].trim()) {
+      next[fieldName] = value;
+    }
   }
   return next;
+}
+
+function mergeParsedDocumentValues(
+  current: UserData,
+  parsedDocs: Array<{ parsed: OcrParseResult }>
+): UserData {
+  return parsedDocs.reduce(
+    (next, { parsed }) => mergeParsedValues(next, parsed.values),
+    { ...current }
+  );
+}
+
+function formatParseWarnings(
+  parsedDocs: Array<{ doc: OcrDocument; parsed: OcrParseResult }>
+): string[] {
+  return parsedDocs.flatMap(({ doc, parsed }) =>
+    parsed.warnings.map((warning) => `${targetLabel(doc.targetPrefix)} (${doc.file.name}): ${warning}`)
+  );
+}
+
+function targetLabel(targetPrefix: OcrTargetPrefix): string {
+  return ocrTargetOptions.find((option) => option.value === targetPrefix)?.label || targetPrefix;
 }
 
 function createPdfBlob(bytes: Uint8Array): Blob {

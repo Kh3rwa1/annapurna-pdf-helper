@@ -35,7 +35,9 @@
       "page": 1,
       "x": 135,
       "y": 612,
-      "size": 8
+      "size": 8,
+      "maxWidth": 220,
+      "maxLines": 2
     },
     {
       "field": "member1_name",

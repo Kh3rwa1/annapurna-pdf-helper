@@ -8,6 +8,9 @@ registerSW({
   immediate: true,
   onOfflineReady() {
     console.info('Annapurna helper is ready for offline use.');
+  },
+  onRegisterError(error) {
+    console.error('Annapurna PWA service worker registration failed.', error);
   }
 });
 

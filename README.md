@@ -21,9 +21,9 @@ Production-oriented scaffold for an installable PWA that scans ID documents, run
 
 The app follows the required order:
 
-1. Scan: mobile camera/file input with `accept="image/*" capture="environment"` and multiple document support.
+1. Scan: mobile camera/file input with `accept="image/*" capture="environment"` and multiple document support. Assign each scan to HOF or Member 1-5 before reviewing extracted fields.
 2. OCR: in-browser `tesseract.js` recognition with `eng+ben` and progress UI.
-3. Review & Edit: parsed values are shown in editable inputs and are not written to the PDF until the user confirms.
+3. Review & Edit: parsed values are shown in editable inputs for the selected person target and are not written to the PDF until the user confirms.
 4. Fill: `pdf-lib` loads the original PDF and draws text/checkbox marks over the existing pages.
 5. Preview: the filled PDF is shown in an embedded PDF preview.
 6. Download: the file downloads as `annapurna_filled.pdf`.
@@ -39,7 +39,8 @@ To calibrate:
 3. Generate `{ "field": "...", "page": 1, "x": 0, "y": 0, "size": 10 }` entries for every field you want filled.
 4. Use 1-based page numbers. The app converts them for `pdf-lib`.
 5. Use `"type": "checkbox"` for checkbox fields. A checked value is the literal string `"X"` and is drawn with `drawText("X")`.
-6. Replace only `frontend/public/fieldMap.json`; no app code changes should be needed.
+6. Use optional `"maxWidth"` and `"maxLines"` on dense text fields, especially addresses, so the overlay shrinks or truncates instead of spilling into adjacent rows.
+7. Replace only `frontend/public/fieldMap.json`; no app code changes should be needed.
 
 The current app validates that every mapped field exists in the field-name contract.
 

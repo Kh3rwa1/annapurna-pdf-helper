@@ -2,10 +2,13 @@ import type { FieldName } from './data/fieldNames';
 
 export type AppStep = 'scan' | 'ocr' | 'review' | 'fill' | 'preview' | 'download';
 
+export type OcrTargetPrefix = 'hof' | 'member1' | 'member2' | 'member3' | 'member4' | 'member5';
+
 export type OcrDocument = {
   id: string;
   file: File;
   previewUrl: string;
+  targetPrefix: OcrTargetPrefix;
   status: 'queued' | 'processing' | 'complete' | 'error';
   progress: number;
   text: string;
@@ -19,6 +22,8 @@ export type FieldMapEntry = {
   x: number;
   y: number;
   size: number;
+  maxWidth?: number;
+  maxLines?: number;
   type?: 'text' | 'checkbox';
 };
 

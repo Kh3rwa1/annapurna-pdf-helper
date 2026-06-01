@@ -4,8 +4,11 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "predev": "npm run copy:tessdata",
     "dev": "vite --host 0.0.0.0",
+    "prebuild": "npm run copy:tessdata",
     "build": "tsc -b && vite build",
+    "prepreview": "npm run copy:tessdata",
     "preview": "vite preview --host 0.0.0.0",
     "copy:tessdata": "node scripts/copy-tessdata.mjs",
     "postinstall": "npm run copy:tessdata"
